@@ -118,11 +118,11 @@ const moduleUsers: ModuleUsers[] = [
     users: [
       { username: 'reception_admin', password: DEFAULT_PASSWORD, role: 'admin' },
       { username: 'receptionist', password: DEFAULT_PASSWORD, role: 'receptionist' },
-      { username: 'front_desk', password: DEFAULT_PASSWORD, role: 'front_desk' },
-      { username: 'appointment_clerk', password: DEFAULT_PASSWORD, role: 'appointment_clerk' },
-      { username: 'billing_clerk', password: DEFAULT_PASSWORD, role: 'billing_clerk' },
-      { username: 'inquiry_desk', password: DEFAULT_PASSWORD, role: 'inquiry_desk' },
-      { username: 'opd_coordinator', password: DEFAULT_PASSWORD, role: 'opd_coordinator' },
+      { username: 'front_desk', password: DEFAULT_PASSWORD, role: 'receptionist' },
+      { username: 'appointment_clerk', password: DEFAULT_PASSWORD, role: 'receptionist' },
+      { username: 'billing_clerk', password: DEFAULT_PASSWORD, role: 'receptionist' },
+      { username: 'inquiry_desk', password: DEFAULT_PASSWORD, role: 'receptionist' },
+      { username: 'opd_coordinator', password: DEFAULT_PASSWORD, role: 'receptionist' },
     ]
   },
   {
