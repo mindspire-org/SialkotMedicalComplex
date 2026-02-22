@@ -86,7 +86,7 @@ export default function Hospital_Backup() {
   }
 
   const deleteAll = async () => {
-    if (!confirm('Delete ALL data from the database (ALL modules)?')) return
+    if (!confirm('Delete ALL data from the database?\n\nPortal users will be preserved.\nAll other data (patients, tokens, appointments, billing, etc.) will be permanently deleted.')) return
     try {
       await adminApi.purgeAll()
       setLastBackup(null)
