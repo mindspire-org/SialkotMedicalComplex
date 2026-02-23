@@ -65,13 +65,14 @@ export async function purgeAll(_req: Request, res: Response){
   const ok = String((_req.body as any)?.confirm || '').toUpperCase() === 'PURGE'
   if (!ok) return res.status(400).json({ error: 'Confirmation required. Set body.confirm = "PURGE".' })
   
-  // Delete all collections except 'users' (preserve portal users)
+  // Delete all collections except user collections (preserve portal users)
   const names = await listCollectionNames()
   const preserved: string[] = []
   const deleted: string[] = []
   
   for (const name of names) {
-    if (name.toLowerCase() === 'users') {
+    // Preserve any collection ending with _users (hospital_users, reception_users, etc.)
+    if (name.toLowerCase().endsWith('_users')) {
       preserved.push(name)
       continue
     }
