@@ -10,7 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node", "express", "cors", "morgan"]
+    "types": ["node", "express", "cors", "morgan", "bcryptjs"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

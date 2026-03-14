@@ -22,6 +22,8 @@ interface UserDefinition {
   fullName?: string
   permissions?: string[]
   active?: boolean
+  shiftId?: string
+  shiftRestricted?: boolean
 }
 
 interface ModuleUsers {
@@ -164,6 +166,8 @@ async function ensureUser(model: any, userDef: UserDefinition): Promise<{ create
     if (userDef.fullName !== undefined) userDoc.fullName = userDef.fullName
     if (userDef.permissions !== undefined) userDoc.permissions = userDef.permissions
     if (userDef.active !== undefined) userDoc.active = userDef.active
+    if (userDef.shiftId !== undefined) userDoc.shiftId = userDef.shiftId
+    if (userDef.shiftRestricted !== undefined) userDoc.shiftRestricted = userDef.shiftRestricted
 
     await model.create(userDoc)
     return { created: true, username: userDef.username }
