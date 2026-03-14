@@ -13,6 +13,49 @@ type Row = {
   draftId?: string
 }
 
+// Helper to determine row status for highlighting
+function getRowStatus(r: Row): 'outOfStock' | 'lowStock' | 'expiringSoon' | null {
+  // Out of stock: totalItems is 0
+  const totalItems = Number(r.totalItems) || 0
+  if (totalItems === 0) return 'outOfStock'
+  
+  // Low stock: totalItems <= minStock
+  const minStock = Number(r.minStock) || 0
+  if (minStock > 0 && totalItems <= minStock) return 'lowStock'
+  
+  // Expiring soon: expiry within 30 days
+  const expiryStr = String(r.expiry || '').slice(0, 10)
+  if (expiryStr && expiryStr !== '-') {
+    try {
+      const expiryDate = new Date(expiryStr)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const thirtyDaysFromNow = new Date(today)
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
+      if (expiryDate <= thirtyDaysFromNow && expiryDate >= today) {
+        return 'expiringSoon'
+      }
+    } catch {}
+  }
+  
+  return null
+}
+
+// Helper to get row classes based on status
+function getRowClasses(r: Row): string {
+  const status = getRowStatus(r)
+  switch (status) {
+    case 'outOfStock':
+      return 'bg-rose-100 hover:bg-rose-200 border-l-4 border-l-rose-600'
+    case 'lowStock':
+      return 'bg-yellow-200 hover:bg-yellow-300 border-l-4 border-l-yellow-600'
+    case 'expiringSoon':
+      return 'bg-orange-200 hover:bg-orange-300 border-l-4 border-l-orange-600'
+    default:
+      return 'hover:bg-slate-50/50'
+  }
+}
+
 const headers = [
   'Invoice #',
   'Medicine',
@@ -79,7 +122,7 @@ export default function Pharmacy_InventoryTable({ rows = [], pending = false, on
               </tr>
             )}
             {hasRows && rows.map((r, i) => (
-              <tr key={i} className="hover:bg-slate-50/50">
+              <tr key={i} className={getRowClasses(r)}>
                 <td className="px-4 py-2">{r.invoice}</td>
                 <td className="px-4 py-2">{r.medicine}</td>
                 <td className="px-4 py-2">{r.generic || '-'}</td>

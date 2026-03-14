@@ -8,6 +8,7 @@ type Row = {
   datetime: string // ISO
   billNo: string
   customer: string
+  phone: string
   medicines: string
   qtyEach: string
   qty: number
@@ -24,6 +25,7 @@ function formatDateTime(s: string) {
 export default function Pharmacy_Returns() {
   const [invoiceId, setInvoiceId] = useState('')
   const [customer, setCustomer] = useState('')
+  const [phone, setPhone] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [limit, setLimit] = useState(10)
@@ -41,7 +43,7 @@ export default function Pharmacy_Returns() {
     ;(async () => {
       setLoading(true)
       try {
-        const res: any = await pharmacyApi.listSales({ bill: invoiceId || undefined, customer: customer || undefined, from: from || undefined, to: to || undefined, page, limit })
+        const res: any = await pharmacyApi.listSales({ bill: invoiceId || undefined, customer: customer || undefined, phone: phone || undefined, from: from || undefined, to: to || undefined, page, limit })
         if (!mounted) return
         const items = res.items || []
         const mapped: Row[] = items.map((s: any) => {
@@ -54,6 +56,7 @@ export default function Pharmacy_Returns() {
             datetime: s.datetime,
             billNo: s.billNo,
             customer: s.customer || 'Walk-in',
+            phone: s.customerPhone || '',
             medicines: meds,
             qtyEach,
             qty,
@@ -90,6 +93,10 @@ export default function Pharmacy_Returns() {
             <input value={customer} onChange={e=>setCustomer(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
+            <label className="mb-1 block text-sm text-slate-700">Phone</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Customer phone" />
+          </div>
+          <div>
             <label className="mb-1 block text-sm text-slate-700">From</label>
             <input type="date" value={from} onChange={e=>setFrom(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
@@ -120,6 +127,7 @@ export default function Pharmacy_Returns() {
                 <th className="px-4 py-2 font-medium">Date/Time</th>
                 <th className="px-4 py-2 font-medium">Bill No</th>
                 <th className="px-4 py-2 font-medium">Customer</th>
+                <th className="px-4 py-2 font-medium">Phone</th>
                 <th className="px-4 py-2 font-medium">Medicines</th>
                 <th className="px-4 py-2 font-medium">Qty (each)</th>
                 <th className="px-4 py-2 font-medium">Qty</th>
@@ -134,6 +142,7 @@ export default function Pharmacy_Returns() {
                   <td className="px-4 py-2">{formatDateTime(r.datetime)}</td>
                   <td className="px-4 py-2">{r.billNo}</td>
                   <td className="px-4 py-2">{r.customer}</td>
+                  <td className="px-4 py-2">{r.phone || '-'}</td>
                   <td className="px-4 py-2">{r.medicines}</td>
                   <td className="px-4 py-2">{r.qtyEach}</td>
                   <td className="px-4 py-2">{r.qty}</td>
@@ -144,7 +153,7 @@ export default function Pharmacy_Returns() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">No results</td>
+                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">No results</td>
                 </tr>
               )}
             </tbody>

@@ -334,6 +334,17 @@ ipcMain.handle('print:current', async (event, options = {}) => {
   });
 });
 
+ipcMain.handle('shell:open-path', async (_event, p) => {
+  try {
+    if (typeof p !== 'string' || !p.trim()) return { ok: false, error: 'Invalid path' }
+    const r = await shell.openPath(p)
+    if (r) return { ok: false, error: r }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
+  }
+})
+
 ipcMain.handle('print:html', async (_event, html, options = {}) => {
   if (typeof html !== 'string' || !html.trim()) return { ok: false, error: 'Invalid HTML' };
   const win = new BrowserWindow({
@@ -360,18 +371,56 @@ ipcMain.handle('print:preview-html', async (_event, html, options = {}) => {
   if (typeof html !== 'string' || !html.trim()) return { ok: false, error: 'Invalid HTML' };
   const tmpDir = app.getPath('temp');
   const pdfPath = path.join(tmpDir, `preview-${Date.now()}.pdf`);
-  const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: false } });
   try {
+    // Show the preview window immediately with a lightweight loading page
+    const pv = new BrowserWindow({
+      width: 1000,
+      height: 800,
+      show: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+
+    const loadingHtml = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Preparing Preview...</title>
+          <style>
+            body{font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; background:#0f172a; color:#e2e8f0;}
+            .wrap{height:100vh; display:flex; align-items:center; justify-content:center;}
+            .card{background:#111827; border:1px solid #1f2937; border-radius:12px; padding:20px 22px; width:460px; box-shadow:0 10px 30px rgba(0,0,0,0.35)}
+            .title{font-size:16px; font-weight:700; margin-bottom:6px}
+            .sub{font-size:12px; color:#94a3b8; margin-bottom:14px}
+            .bar{height:10px; background:#0b1220; border-radius:999px; overflow:hidden; border:1px solid #1f2937}
+            .bar > div{height:100%; width:35%; background:#38bdf8; animation:slide 1.1s ease-in-out infinite}
+            @keyframes slide{0%{transform:translateX(-110%)} 100%{transform:translateX(320%)} }
+          </style>
+        </head>
+        <body>
+          <div class="wrap">
+            <div class="card">
+              <div class="title">Preparing PDF preview…</div>
+              <div class="sub">Please wait a moment.</div>
+              <div class="bar"><div></div></div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `
+    await pv.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(loadingHtml));
+
     await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
     const data = await win.webContents.printToPDF({ printBackground: true, marginsType: 0, ...options });
     fs.writeFileSync(pdfPath, data);
     try { win.close(); } catch {}
-    const pv = new BrowserWindow({ width: 1000, height: 800, show: true, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
     await pv.loadURL(pathToFileURL(pdfPath).toString());
     pv.on('closed', () => { try { fs.unlinkSync(pdfPath) } catch {} });
     return { ok: true, path: pdfPath };
   } catch (e) {
     try { win.close() } catch {}
+    try { console.error('[print:preview-html] failed:', e) } catch {}
     return { ok: false, error: e?.message || String(e) };
   }
 });

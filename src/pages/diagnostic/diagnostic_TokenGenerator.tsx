@@ -2,7 +2,74 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import Diagnostic_TokenSlip from '../../components/diagnostic/Diagnostic_TokenSlip'
 import type { DiagnosticTokenSlipData } from '../../components/diagnostic/Diagnostic_TokenSlip'
-import { labApi, diagnosticApi, corporateApi, hospitalApi } from '../../utils/api'
+import { corporateApi, diagnosticApi, hospitalApi, labApi, receptionApi } from '../../utils/api'
+import Toast from '../../components/ui/Toast'
+
+type SearchOption = { value: string; label: string }
+function MultiSelect({ options, selectedIds, onToggle, placeholder }: { options: SearchOption[]; selectedIds: string[]; onToggle: (id: string) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current) return
+      if (!ref.current.contains(e.target as any)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return options.filter(o => !q || o.label.toLowerCase().includes(q)).slice(0, 100)
+  }, [options, query])
+  const selectedLabels = useMemo(() => {
+    return selectedIds.map(id => options.find(o => o.value === id)?.label).filter(Boolean)
+  }, [options, selectedIds])
+  return (
+    <div ref={ref} className="relative">
+      <div
+        onClick={() => setOpen(o => !o)}
+        className="w-full min-h-[42px] rounded-md border border-slate-300 px-3 py-2 cursor-pointer flex flex-wrap gap-1 items-center dark:bg-slate-900 dark:border-slate-700"
+      >
+        {selectedLabels.length > 0 ? (
+          selectedLabels.map((label, idx) => (
+            <span key={idx} className="inline-flex items-center gap-1 rounded bg-violet-100 px-2 py-0.5 text-xs dark:bg-violet-900/30 dark:text-violet-300">
+              {label}
+              <button type="button" onClick={e => { e.stopPropagation(); onToggle(selectedIds[idx]) }} className="hover:text-violet-700">×</button>
+            </span>
+          ))
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500">{placeholder || 'Select...'}</span>
+        )}
+        <span className="ml-auto text-slate-500">▾</span>
+      </div>
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search..."
+            className="w-full border-b border-slate-200 px-3 py-2 text-sm outline-none dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+            onClick={e => e.stopPropagation()}
+          />
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+          ) : filtered.map(opt => (
+            <button
+              type="button"
+              key={String(opt.value)}
+              onClick={() => onToggle(String(opt.value))}
+              className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+            >
+              <div className="text-sm text-slate-800 dark:text-slate-200">{opt.label}</div>
+              {selectedIds.includes(String(opt.value)) ? <span className="text-xs text-violet-600">✓</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Diagnostic_TokenGenerator() {
   const location = useLocation() as any
@@ -25,10 +92,7 @@ export default function Diagnostic_TokenGenerator() {
   // Tests (from backend)
   type Test = { id: string; name: string; price: number }
   const [tests, setTests] = useState<Test[]>([])
-  const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
-  const [testsOpen, setTestsOpen] = useState(false)
-  const testsPickerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let mounted = true
       ; (async () => {
@@ -77,7 +141,7 @@ export default function Diagnostic_TokenGenerator() {
         setSelectedPatient(p)
         setFullName(p.fullName || '')
         setPhone(p.phoneNormalized || '')
-        setMrn(p.mrn || '')
+        setMrn(p.mrn || mrn)
         setAge((p.age != null && p.age !== '') ? String(p.age) : '')
         if (p.gender) setGender(String(p.gender))
         setGuardianName(p.fatherName || '')
@@ -90,12 +154,10 @@ export default function Diagnostic_TokenGenerator() {
 
   function onPhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value
-    const digitsOnly = String(v || '').replace(/\D+/g, '').slice(0, 11)
-    setPhone(digitsOnly)
-    if (forceCreateNextSubmit) setForceCreateNextSubmit(false)
+    setPhone(v)
     skipLookupKeyRef.current = null; lastPromptKeyRef.current = null
       ; (window as any)._diagPhoneDeb && clearTimeout((window as any)._diagPhoneDeb)
-    const digits = digitsOnly
+    const digits = (v || '').replace(/\D+/g, '')
     // Incremental suggestions after 3+ digits
     if ((window as any)._diagPhoneSuggestDeb) clearTimeout((window as any)._diagPhoneSuggestDeb)
     if (digits.length >= 3) {
@@ -105,7 +167,7 @@ export default function Diagnostic_TokenGenerator() {
       setPhoneSuggestOpen(false)
     }
     if (digits.length >= 10) {
-      ; (window as any)._diagPhoneDeb = setTimeout(() => autoFillByPhone(digitsOnly), 500)
+      ; (window as any)._diagPhoneDeb = setTimeout(() => autoFillByPhone(v), 500)
     }
   }
 
@@ -127,7 +189,7 @@ export default function Diagnostic_TokenGenerator() {
     setSelectedPatient(p)
     setFullName(p.fullName || '')
     setPhone(p.phoneNormalized || '')
-    setMrn(p.mrn || '')
+    setMrn(p.mrn || mrn)
     setAge((p.age != null && p.age !== '') ? String(p.age) : '')
     if (p.gender) setGender(String(p.gender))
     setGuardianName(p.fatherName || '')
@@ -135,6 +197,52 @@ export default function Diagnostic_TokenGenerator() {
     setAddress(p.address || '')
     setCnic(p.cnicNormalized || p.cnic || '')
     setPhoneSuggestOpen(false)
+  }
+
+  async function runNameSuggestLookup(nameQuery: string) {
+    try {
+      nameSuggestQueryRef.current = nameQuery
+      const r: any = await labApi.searchPatients({ name: nameQuery, limit: 8 })
+      const list: any[] = Array.isArray(r?.patients) ? r.patients : []
+      if (nameSuggestQueryRef.current !== nameQuery) return
+      setNameSuggestItems(list)
+      setNameSuggestOpen(list.length > 0)
+    } catch {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
+  }
+
+  function selectNameSuggestion(p: any) {
+    setSelectedPatient(p)
+    setFullName(p.fullName || '')
+    setPhone(p.phoneNormalized || '')
+    setMrn(p.mrn || mrn)
+    setAge((p.age != null && p.age !== '') ? String(p.age) : '')
+    if (p.gender) setGender(String(p.gender))
+    setGuardianName(p.fatherName || '')
+    if (p.guardianRel) setGuardianRel(String(p.guardianRel))
+    setAddress(p.address || '')
+    setCnic(p.cnicNormalized || p.cnic || '')
+    setNameSuggestOpen(false)
+  }
+
+  function onNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newName = e.target.value
+    setFullName(newName)
+    skipLookupKeyRef.current = null
+    lastPromptKeyRef.current = null
+    setNameSuggestOpen(false)
+    const trimmed = newName.trim()
+    if (trimmed.length >= 2) {
+      clearTimeout((window as any).diagNameSuggestTimeout)
+        ; (window as any).diagNameSuggestTimeout = setTimeout(() => {
+        runNameSuggestLookup(trimmed)
+      }, 300)
+    } else {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
   }
   // When tests list is loaded or requestedTests changes, preselect those tests
   useEffect(() => {
@@ -151,7 +259,7 @@ export default function Diagnostic_TokenGenerator() {
   const [corpCompanyId, setCorpCompanyId] = useState('')
   const [corpPreAuthNo, setCorpPreAuthNo] = useState('')
   const [corpCoPayPercent, setCorpCoPayPercent] = useState('')
-  const [corpCoverageCap, setCorpCoverageCap] = useState('')
+  const [corpCoverageCap] = useState('')
   // Corporate effective pricing map for DIAG tests
   const [corpTestPriceMap, setCorpTestPriceMap] = useState<Record<string, number>>({})
 
@@ -163,14 +271,18 @@ export default function Diagnostic_TokenGenerator() {
     return v != null ? v : base
   }
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return tests.filter(t => !selected.includes(t.id)).filter(t => !q || t.name.toLowerCase().includes(q)).slice(0, 30)
-  }, [tests, query, selected])
   const selectedTests = useMemo(() => selected.map(id => tests.find(t => t.id === id)).filter(Boolean) as Test[], [selected, tests])
   const subtotal = useMemo(() => selectedTests.reduce((s, t) => s + getEffectivePrice(t.id), 0), [selectedTests, corpCompanyId, corpTestPriceMap])
   const [discount, setDiscount] = useState('0')
   const net = Math.max(0, subtotal - (Number(discount) || 0))
+  const [receivedAmount, setReceivedAmount] = useState('0')
+  const receivedNum = Math.max(0, Math.min(net, Number(receivedAmount) || 0))
+  const receivableNum = Math.max(0, net - receivedNum)
+
+  // Auto-set received amount to full net amount when tests are selected or net changes
+  useEffect(() => {
+    setReceivedAmount(String(net))
+  }, [net])
 
   // Corporate billing (load companies)
   // Recompute corporate pricing after corpCompanyId is declared
@@ -228,48 +340,29 @@ export default function Diagnostic_TokenGenerator() {
   const autoMrnAppliedRef = useRef<boolean>(false)
   const [phonePatients, setPhonePatients] = useState<any[]>([])
   const [showPhonePicker, setShowPhonePicker] = useState(false)
-  const [forceCreateNextSubmit, setForceCreateNextSubmit] = useState(false)
   const [phoneSuggestOpen, setPhoneSuggestOpen] = useState(false)
   const [phoneSuggestItems, setPhoneSuggestItems] = useState<any[]>([])
   const phoneSuggestWrapRef = useRef<HTMLDivElement>(null)
   const phoneSuggestQueryRef = useRef<string>('')
 
-  const clearPatientFieldsKeepPhone = () => {
-    const digits = String(phone || '').replace(/\D+/g, '')
-    const norm = (s: string)=> String(s||'').trim().toLowerCase().replace(/\s+/g,' ')
-    const key = `${digits}|${norm(fullName)}`
-    setSelectedPatient(null)
-    setMrn('')
-    setFullName('')
-    setAge('')
-    setGender('')
-    setAddress('')
-    setGuardianName('')
-    setGuardianRel('')
-    setCnic('')
-    setShowPhonePicker(false)
-    setPhonePatients([])
-    setPhoneSuggestOpen(false)
-    setPhoneSuggestItems([])
-    skipLookupKeyRef.current = key
-    lastPromptKeyRef.current = key
-    setForceCreateNextSubmit(true)
-    setTimeout(() => { try { nameRef.current?.focus() } catch {} }, 50)
-  }
+  // Track if user explicitly chose to create new patient (to force creation even if phone exists)
+  const [forceCreatePatient, setForceCreatePatient] = useState(false)
 
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (!testsPickerRef.current) return
-      if (!testsPickerRef.current.contains(e.target as any)) setTestsOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
+  // Toast notifications
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+
+  // Name search suggestions
+  const [nameSuggestOpen, setNameSuggestOpen] = useState(false)
+  const [nameSuggestItems, setNameSuggestItems] = useState<any[]>([])
+  const nameSuggestWrapRef = useRef<HTMLDivElement>(null)
+  const nameSuggestQueryRef = useRef<string>('')
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!phoneSuggestWrapRef.current) return
       if (!phoneSuggestWrapRef.current.contains(e.target as any)) setPhoneSuggestOpen(false)
+      if (!nameSuggestWrapRef.current) return
+      if (!nameSuggestWrapRef.current.contains(e.target as any)) setNameSuggestOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -363,8 +456,23 @@ export default function Diagnostic_TokenGenerator() {
       setAddress(p.address || '')
       setCnic(p.cnicNormalized || p.cnic || '')
     } catch {
-      alert('No patient found for this MR number')
+      setToast({ type: 'error', message: 'No patient found for this MR number' })
     }
+  }
+
+  const clearPatientFieldsKeepPhone = () => {
+    setSelectedPatient(null)
+    setFullName('')
+    setMrn('')
+    setAge('')
+    setGender('')
+    setGuardianRel('')
+    setGuardianName('')
+    setCnic('')
+    setAddress('')
+    setShowPhonePicker(false)
+    setForceCreatePatient(true) // Mark that we want to force create a new patient
+    setTimeout(() => { try { nameRef.current?.focus() } catch {} }, 50)
   }
 
   const generateToken = async () => {
@@ -385,26 +493,42 @@ export default function Diagnostic_TokenGenerator() {
           patient = upd?.patient || patient
         }
       } else {
-        const fr = await labApi.findOrCreatePatient({
-          fullName: fullName.trim(),
-          guardianName: guardianName || undefined,
-          phone: phone || undefined,
-          cnic: cnic || undefined,
-          gender: gender || undefined,
-          address: address || undefined,
-          age: age || undefined,
-          guardianRel: guardianRel || undefined,
-          ...(forceCreateNextSubmit ? { forceCreate: true } : {}),
-        }) as any
+        const fr = await labApi.findOrCreatePatient({ fullName: fullName.trim(), guardianName: guardianName || undefined, phone: phone || undefined, cnic: cnic || undefined, gender: gender || undefined, address: address || undefined, age: age || undefined, guardianRel: guardianRel || undefined, forceCreate: forceCreatePatient }) as any
         patient = fr?.patient
-        if (forceCreateNextSubmit) setForceCreateNextSubmit(false)
+        setForceCreatePatient(false) // Reset after using
       }
       if (!patient?._id) throw new Error('Failed to resolve patient')
 
       // Create diagnostic order
       const testIds = selected
       const slipRows = selectedTests.map(t => ({ name: t.name, price: getEffectivePrice(t.id) }))
-      const created = await diagnosticApi.createOrder({
+      const created = window.location.pathname.startsWith('/reception')
+        ? await receptionApi.createDiagnosticOrder({
+          patientId: String(patient._id),
+          patient: {
+            mrn: patient.mrn || undefined,
+            fullName: fullName.trim(),
+            phone: phone || undefined,
+            age: age || undefined,
+            gender: gender || undefined,
+            address: address || undefined,
+            guardianRelation: guardianRel || undefined,
+            guardianName: guardianName || undefined,
+            cnic: cnic || undefined,
+          },
+          tests: testIds,
+          subtotal,
+          discount: Number(discount) || 0,
+          net,
+          receivedAmount: receivedNum,
+          referringConsultant: referringConsultant || undefined,
+          ...(corpCompanyId ? { corporateId: corpCompanyId } : {}),
+          ...(corpPreAuthNo ? { corporatePreAuthNo: corpPreAuthNo } : {}),
+          ...(corpCoPayPercent ? { corporateCoPayPercent: Number(corpCoPayPercent) } : {}),
+          ...(corpCoverageCap ? { corporateCoverageCap: Number(corpCoverageCap) } : {}),
+          portal: 'reception',
+        } as any)
+        : await diagnosticApi.createOrder({
         patientId: String(patient._id),
         patient: {
           mrn: patient.mrn || undefined,
@@ -421,12 +545,14 @@ export default function Diagnostic_TokenGenerator() {
         subtotal,
         discount: Number(discount) || 0,
         net,
+        receivedAmount: receivedNum,
         referringConsultant: referringConsultant || undefined,
         ...(corpCompanyId ? { corporateId: corpCompanyId } : {}),
         ...(corpPreAuthNo ? { corporatePreAuthNo: corpPreAuthNo } : {}),
         ...(corpCoPayPercent ? { corporateCoPayPercent: Number(corpCoPayPercent) } : {}),
         ...(corpCoverageCap ? { corporateCoverageCap: Number(corpCoverageCap) } : {}),
-      }) as any
+        portal: window.location.pathname.startsWith('/reception') ? 'reception' : 'diagnostic',
+      } as any) as any
 
       // If we are processing a referral, mark it completed
       if (fromReferralId) {
@@ -441,7 +567,7 @@ export default function Diagnostic_TokenGenerator() {
         phone: phone.trim(),
         age: age || undefined,
         gender: gender || undefined,
-        mrn: patient.mrn || undefined,
+        mrn: patient.mrn || mrn || undefined,
         guardianRel: guardianRel || undefined,
         guardianName: guardianName || undefined,
         cnic: cnic || undefined,
@@ -451,245 +577,213 @@ export default function Diagnostic_TokenGenerator() {
         discount: Number(discount) || 0,
         payable: net,
         createdAt,
-        fbr: {
-          status: created?.fbrStatus || created?.order?.fbrStatus || created?.fbr?.status,
-          qrCode: created?.fbrQrCode || created?.order?.fbrQrCode || created?.fbr?.qrCode,
-          fbrInvoiceNo: created?.fbrInvoiceNo || created?.order?.fbrInvoiceNo || created?.fbr?.fbrInvoiceNo || created?.fbr?.invoiceNumber,
-          mode: created?.fbrMode || created?.order?.fbrMode || created?.fbr?.mode,
-          error: created?.fbrError || created?.order?.fbrError || created?.fbr?.error,
-        } as any,
       }
       setSlipData(data)
       setSlipOpen(true)
-
-      // Clear form after success (prevent stale MRN/fields from being reused)
-      setSelectedPatient(null)
-      setFullName('')
-      setPhone('')
-      setMrn('')
-      setAge('')
-      setGender('')
-      setGuardianRel('')
-      setGuardianName('')
-      setCnic('')
-      setAddress('')
-      setQuery('')
-      setSelected([])
-      setTestsOpen(false)
-      setPhoneSuggestOpen(false)
-      setPhoneSuggestItems([])
-      setShowPhonePicker(false)
-      setPhonePatients([])
-      setConfirmPatient(null)
-      setFocusAfterConfirm(null)
-      setFromReferralId('')
-      setRequestedTests([])
-      setReferringConsultant('')
+      setToast({ type: 'success', message: `Token ${data.tokenNo} generated successfully` })
     } catch (e: any) {
-      alert(e?.message || 'Failed to create order')
+      setToast({ type: 'error', message: e?.message || 'Failed to create order' })
     }
   }
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      {/* Patient Details */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Patient Details</div>
-        <div className="text-xs text-slate-500">Fill all required details to generate a token</div>
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Phone *</label>
-            <div ref={phoneSuggestWrapRef} className="relative">
-              <input
-                value={phone}
-                onChange={onPhoneChange}
-                ref={phoneRef}
-                maxLength={11}
-                onBlur={() => lookupExistingByPhoneAndName('phone')}
-                onFocus={() => { if (phoneSuggestItems.length > 0) setPhoneSuggestOpen(true) }}
-                className="w-full rounded-md border border-slate-300 px-3 py-2"
-                placeholder="Type phone to search"
-              />
-              {phoneSuggestOpen && (
-                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-                  {phoneSuggestItems.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-slate-500">No results</div>
-                  ) : (
-                    phoneSuggestItems.map((p: any, idx: number) => (
-                      <button
-                        type="button"
-                        key={p._id || idx}
-                        onClick={() => selectPhoneSuggestion(p)}
-                        className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
-                      >
-                        <div className="text-sm font-medium text-slate-800">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500">{p.mrn || '-'}</span></div>
-                        <div className="text-xs text-slate-600">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
-                        {p.address && <div className="text-xs text-slate-500 truncate">{p.address}</div>}
-                      </button>
-                    ))
+    <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-[#0b1220] dark:text-slate-100">
+      <div className="p-4 sm:p-6">
+        <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Token Generator</h2>
+      <form onSubmit={e => { e.preventDefault(); generateToken() }} className="mt-6 space-y-8">
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Patient Information */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Patient Information</h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Phone</label>
+                <div ref={phoneSuggestWrapRef} className="relative">
+                  <input
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500"
+                    placeholder="Type phone to search"
+                    value={phone}
+                    maxLength={11}
+                    onChange={onPhoneChange}
+                    onBlur={() => lookupExistingByPhoneAndName('phone')}
+                    onFocus={() => { if (phoneSuggestItems.length > 0) setPhoneSuggestOpen(true) }}
+                    ref={phoneRef}
+                  />
+                  {phoneSuggestOpen && (
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+                      {phoneSuggestItems.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+                      ) : (
+                        phoneSuggestItems.map((p: any, idx: number) => (
+                          <button
+                            type="button"
+                            key={p._id || idx}
+                            onClick={() => selectPhoneSuggestion(p)}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                          >
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
                   )}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Patient Name</label>
+                <div ref={nameSuggestWrapRef} className="relative">
+                  <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Type name to search" value={fullName} onChange={onNameChange} onBlur={() => lookupExistingByPhoneAndName('name')} onFocus={() => { if (nameSuggestItems.length > 0) setNameSuggestOpen(true) }} ref={nameRef} />
+                  {nameSuggestOpen && (
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+                      {nameSuggestItems.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+                      ) : (
+                        nameSuggestItems.map((p: any, idx: number) => (
+                          <button
+                            type="button"
+                            key={p._id || idx}
+                            onClick={() => selectNameSuggestion(p)}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                          >
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Search by MR Number</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Enter MR# (e.g., MR-15)" value={mrn} onChange={e => setMrn(e.target.value)} onKeyDown={onMrnKeyDown} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Age</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="e.g., 25" value={age} onChange={e => setAge(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Gender</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={gender} onChange={e => setGender(e.target.value)}>
+                  <option value="">Select gender</option>
+                  <option className="dark:bg-slate-900">Male</option>
+                  <option className="dark:bg-slate-900">Female</option>
+                  <option className="dark:bg-slate-900">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={guardianRel} onChange={e => setGuardianRel(e.target.value)}>
+                  <option value="">S/O or D/O</option>
+                  <option className="dark:bg-slate-900" value="S/O">S/O</option>
+                  <option className="dark:bg-slate-900" value="D/O">D/O</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian Name</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Father/Guardian Name" value={guardianName} onChange={e => setGuardianName(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">CNIC</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="13-digit CNIC (no dashes)" value={cnic} onChange={e => setCnic(e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Address</label>
+                <textarea className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" rows={3} placeholder="Residential Address" value={address} onChange={e => setAddress(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Tests & Billing */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Tests & Billing</h3>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Select Tests</label>
+                <MultiSelect
+                  options={tests.map(t => ({ value: t.id, label: `${t.name} (PKR ${getEffectivePrice(t.id).toLocaleString()})` }))}
+                  selectedIds={selected}
+                  onToggle={id => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+                  placeholder="Select tests..."
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Billing Type</label>
+                  <select value={corpCompanyId ? 'Corporate' : 'Cash'} onChange={e => { if (e.target.value !== 'Corporate') setCorpCompanyId('') }} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+                    <option>Cash</option>
+                    <option>Card</option>
+                    <option>Corporate</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Referring Consultant</label>
+                  <input value={referringConsultant} onChange={e => setReferringConsultant(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Optional" />
+                </div>
+              </div>
+              {corpCompanyId && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Corporate Company</label>
+                    <select value={corpCompanyId} onChange={e => setCorpCompanyId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+                      <option value="">None</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Pre-Auth No</label>
+                    <input value={corpPreAuthNo} onChange={e => setCorpPreAuthNo(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Co-Pay %</label>
+                    <input value={corpCoPayPercent} onChange={e => setCorpCoPayPercent(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0-100" />
+                  </div>
                 </div>
               )}
             </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Patient Name *</label>
-            <input value={fullName} onChange={e => { setFullName(e.target.value); skipLookupKeyRef.current = null; lastPromptKeyRef.current = null }} ref={nameRef} onBlur={() => lookupExistingByPhoneAndName('name')} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. Muhammad Zain" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">MR Number</label>
-            <input value={mrn} onChange={e => setMrn(e.target.value)} onKeyDown={onMrnKeyDown} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="MR-2401-000001" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Age</label>
-            <input value={age} onChange={e => setAge(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. 22" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Gender</label>
-            <select value={gender} onChange={e => setGender(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">Select gender</option>
-              <option>Male</option>
-              <option>Female</option>
-              <option>Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Guardian S/O or D/O</label>
-            <select value={guardianRel} onChange={e => setGuardianRel(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">Select</option>
-              <option value="S/O">S/O</option>
-              <option value="D/O">D/O</option>
-              <option value="O">O</option>
-            </select>
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Guardian Name</label>
-            <input value={guardianName} onChange={e => setGuardianName(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. Arif" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">CNIC</label>
-            <input value={cnic} onChange={e => setCnic(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="#####-#######-#" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Address</label>
-            <input value={address} onChange={e => setAddress(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="Street, City" />
-          </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Select Tests */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Select Tests</div>
-        <div className="text-xs text-slate-500">Tests are loaded from the Diagnostics → Tests page</div>
-        <div className="mt-3 space-y-2">
-          <div ref={testsPickerRef} className="relative">
-            <input
-              value={query}
-              onChange={e => { setQuery(e.target.value); if (!testsOpen) setTestsOpen(true) }}
-              onFocus={() => setTestsOpen(true)}
-              placeholder="Search test by name/code..."
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-            {testsOpen && filtered.length > 0 && (
-              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-                {filtered.map(t => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => { setSelected(prev => [...prev, t.id]); setTestsOpen(false) }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{t.name}</div>
-                    </div>
-                    <div className="text-xs text-slate-600">PKR {getEffectivePrice(t.id).toLocaleString()}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {selectedTests.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {selectedTests.map(t => (
-                <span key={t.id} className="inline-flex items-center gap-2 rounded-md bg-slate-100 px-2 py-1 text-sm">
-                  {t.name}
-                  <button onClick={() => setSelected(prev => prev.filter(x => x !== t.id))} className="text-slate-500 hover:text-slate-700">×</button>
-                </span>
-              ))}
+        {/* Fee Details */}
+        <section className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Fee Details</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Subtotal</label>
+              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">PKR {subtotal.toLocaleString()}</div>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Summary and submit */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Billing Summary</div>
-        <div className="mt-3 divide-y divide-slate-200 text-sm">
-          {selectedTests.map(t => (
-            <div key={t.id} className="flex items-center justify-between py-2">
-              <div>{t.name}</div>
-              <div>PKR {getEffectivePrice(t.id).toLocaleString()}</div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Discount</label>
+              <input value={discount} onChange={e => setDiscount(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0" />
             </div>
-          ))}
-          <div className="flex items-center justify-between py-2">
-            <div className="text-slate-600">Subtotal</div>
-            <div>PKR {subtotal.toLocaleString()}</div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Net Amount</label>
+              <div className="flex h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400">PKR {net.toLocaleString()}</div>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Received</label>
+              <input value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0" />
+            </div>
           </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="text-slate-600">Discount</div>
-            <input value={discount} onChange={e => setDiscount(e.target.value)} className="w-40 rounded-md border border-slate-300 px-3 py-1.5 text-right" placeholder="0" />
+          <div className="mt-4 flex items-center justify-between">
+            <div className="text-sm text-slate-600 dark:text-slate-400">Pending: <span className="font-semibold text-slate-800 dark:text-slate-200">PKR {receivableNum.toLocaleString()}</span></div>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => { setFullName(''); setPhone(''); setMrn(''); setAge(''); setGender(''); setGuardianRel(''); setGuardianName(''); setCnic(''); setAddress(''); setSelected([]); setDiscount('0'); setReceivedAmount('0'); setCorpCompanyId(''); setSelectedPatient(null) }} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Reset Form</button>
+              <button type="submit" disabled={!fullName || !phone || selectedTests.length === 0} className="rounded-md bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40 dark:bg-violet-600 dark:hover:bg-violet-700">Generate Token</button>
+            </div>
           </div>
-          <div className="flex items-center justify-between py-2 font-semibold">
-            <div>Net Amount</div>
-            <div>PKR {net.toLocaleString()}</div>
-          </div>
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={generateToken} disabled={!fullName || !phone || selectedTests.length === 0} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Generate Token</button>
-        </div>
+        </section>
+      </form>
       </div>
-
-      {/* Corporate Billing */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Corporate Billing</div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Corporate Company</label>
-            <select value={corpCompanyId} onChange={e => setCorpCompanyId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">None</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          {corpCompanyId && (
-            <>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Pre-Auth No</label>
-                <input value={corpPreAuthNo} onChange={e => setCorpPreAuthNo(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="Optional" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Co-Pay %</label>
-                <input value={corpCoPayPercent} onChange={e => setCorpCoPayPercent(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="0-100" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Coverage Cap</label>
-                <input value={corpCoverageCap} onChange={e => setCorpCoverageCap(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g., 5000" />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-
 
       {/* Slip modal */}
       {slipOpen && slipData && (
         <Diagnostic_TokenSlip open={slipOpen} onClose={() => setSlipOpen(false)} data={slipData} />
       )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
       {showPhonePicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl ring-1 ring-black/5">

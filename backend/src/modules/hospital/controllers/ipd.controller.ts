@@ -45,9 +45,20 @@ export async function admit(req: Request, res: Response){
   // If a bed is specified, ensure it's available before creating encounter
   let bed: any = null
   if (data.bedId){
-    bed = await HospitalBed.findById(data.bedId)
+    bed = await HospitalBed.findById(data.bedId).populate({
+      path: 'occupiedByEncounterId',
+      select: 'status type',
+    })
     if (!bed) return res.status(400).json({ error: 'Invalid bedId' })
-    if (bed.status === 'occupied') return res.status(400).json({ error: 'Bed is already occupied' })
+    // Check if bed is truly occupied by an active IPD admission (match listBeds normalization logic)
+    const enc = bed.occupiedByEncounterId as any
+    const isTrulyOccupied = bed.status === 'occupied' && enc && enc.status === 'admitted' && enc.type === 'IPD'
+    if (isTrulyOccupied) return res.status(400).json({ error: 'Bed is already occupied' })
+    // If stale occupied status (discharged/non-IPD), reset it
+    if (bed.status === 'occupied' && !isTrulyOccupied) {
+      bed.status = 'available'
+      bed.occupiedByEncounterId = undefined as any
+    }
   }
 
   const enc = await HospitalEncounter.create({
@@ -162,6 +173,7 @@ export async function list(req: Request, res: Response){
     .populate('patientId', 'mrn fullName phoneNormalized cnicNormalized')
     .populate('doctorId', 'name')
     .populate('departmentId', 'name')
+    .populate('tokenId', 'tokenNo')
     .lean()
   if (search){
     rows = rows.filter((r: any)=>{
@@ -206,9 +218,20 @@ export async function transferBed(req: Request, res: Response){
   if (!enc) return res.status(404).json({ error: 'Encounter not found' })
   if (enc.type !== 'IPD') return res.status(400).json({ error: 'Not an IPD encounter' })
   if (enc.status === 'discharged') return res.status(400).json({ error: 'Encounter already discharged' })
-  const newBed = await HospitalBed.findById(data.newBedId)
+  const newBed = await HospitalBed.findById(data.newBedId).populate({
+    path: 'occupiedByEncounterId',
+    select: 'status type',
+  })
   if (!newBed) return res.status(400).json({ error: 'Invalid newBedId' })
-  if (newBed.status === 'occupied') return res.status(400).json({ error: 'New bed is already occupied' })
+  // Check if bed is truly occupied by an active IPD admission (match listBeds normalization logic)
+  const newBedEnc = newBed.occupiedByEncounterId as any
+  const isNewBedTrulyOccupied = newBed.status === 'occupied' && newBedEnc && newBedEnc.status === 'admitted' && newBedEnc.type === 'IPD'
+  if (isNewBedTrulyOccupied) return res.status(400).json({ error: 'New bed is already occupied' })
+  // If stale occupied status (discharged/non-IPD), reset it
+  if (newBed.status === 'occupied' && !isNewBedTrulyOccupied) {
+    newBed.status = 'available'
+    newBed.occupiedByEncounterId = undefined as any
+  }
   // Free old bed if it was occupied by this encounter
   if (enc.bedId){
     const oldBed = await HospitalBed.findById(enc.bedId)
@@ -277,9 +300,20 @@ export async function admitFromToken(req: Request, res: Response){
   // Validate bed if provided
   let bed: any = null
   if (data.bedId){
-    bed = await HospitalBed.findById(data.bedId)
+    bed = await HospitalBed.findById(data.bedId).populate({
+      path: 'occupiedByEncounterId',
+      select: 'status type',
+    })
     if (!bed) return res.status(400).json({ error: 'Invalid bedId' })
-    if (bed.status === 'occupied') return res.status(400).json({ error: 'Bed is already occupied' })
+    // Check if bed is truly occupied by an active IPD admission (match listBeds normalization logic)
+    const enc = bed.occupiedByEncounterId as any
+    const isTrulyOccupied = bed.status === 'occupied' && enc && enc.status === 'admitted' && enc.type === 'IPD'
+    if (isTrulyOccupied) return res.status(400).json({ error: 'Bed is already occupied' })
+    // If stale occupied status (discharged/non-IPD), reset it
+    if (bed.status === 'occupied' && !isTrulyOccupied) {
+      bed.status = 'available'
+      bed.occupiedByEncounterId = undefined as any
+    }
   }
   // Create IPD encounter
   const enc = await HospitalEncounter.create({
@@ -293,6 +327,7 @@ export async function admitFromToken(req: Request, res: Response){
     bedId: data.bedId,
     deposit: data.deposit,
     admissionNo: await nextAdmissionNo(),
+    tokenId: data.tokenId,
   })
   if (bed){
     bed.status = 'occupied'

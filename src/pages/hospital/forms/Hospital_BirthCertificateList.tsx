@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { hospitalApi } from '../../../utils/api'
+import { hospitalApi, api as coreApi } from '../../../utils/api'
 import Hospital_BirthCertificateForm from '../../../components/hospital/hospital_BirthCertificateForm'
+import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 
 export default function Hospital_BirthCertificateList(){
-  const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
@@ -15,6 +14,7 @@ export default function Hospital_BirthCertificateList(){
   const [showModal, setShowModal] = useState(false)
   const [encounterId, setEncounterId] = useState('')
   const [docId, setDocId] = useState<string|undefined>(undefined)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(()=>{ load() }, [page, limit])
 
@@ -56,17 +56,32 @@ export default function Hospital_BirthCertificateList(){
 
   function sr(idx: number){ return (page-1)*limit + idx + 1 }
 
-  function onDownloadPdf(id: string){
-    const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
-    const isElectronUA = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent || '')
-    const apiBase = (import.meta as any).env?.VITE_API_URL || ((isFile || isElectronUA) ? 'http://127.0.0.1:4000/api' : 'http://localhost:4000/api')
-    const url = `${apiBase}/hospital/ipd/forms/birth-certificates/${encodeURIComponent(id)}/print-pdf`
-    window.open(url, '_blank')
+  async function onPrint(id: string){
+    try {
+      const html = await coreApi(`/hospital/ipd/forms/birth-certificates/${encodeURIComponent(id)}/print`) as any
+      
+      // Use Electron print preview if available
+      const api: any = (window as any).electronAPI
+      try {
+        if (api && typeof api.printPreviewHtml === 'function'){
+          await api.printPreviewHtml(String(html), {})
+          return
+        }
+      } catch {}
+      
+      // Fallback to browser window
+      const w = window.open('', '_blank'); if (!w) return
+      w.document.write(String(html)); w.document.close(); w.focus()
+    } catch {}
   }
 
   async function onDelete(id: string){
-    if (!confirm('Delete this form?')) return
-    try { await hospitalApi.deleteBirthCertificateById(id) } catch {}
+    setConfirmDeleteId(id)
+  }
+  async function confirmDelete(){
+    if (!confirmDeleteId) return
+    try { await hospitalApi.deleteBirthCertificateById(confirmDeleteId) } catch {}
+    setConfirmDeleteId(null)
     load()
   }
 
@@ -106,7 +121,7 @@ export default function Hospital_BirthCertificateList(){
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
                     <button className="btn-outline-navy text-xs" onClick={()=> { setShowModal(true); setDocId(String(r._id)); setEncounterId('') }}>Edit</button>
-                    <button className="btn-outline-navy text-xs" onClick={()=> onDownloadPdf(String(r._id))}>Download PDF</button>
+                    <button className="btn-outline-navy text-xs" onClick={()=> onPrint(String(r._id))}>Print</button>
                     <button className="btn-outline-navy text-xs" onClick={()=> onDelete(String(r._id))}>Delete</button>
                   </div>
                 </td>
@@ -142,6 +157,14 @@ export default function Hospital_BirthCertificateList(){
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Confirm Delete"
+        message="Delete this form?"
+        confirmText="Delete"
+        onCancel={()=>setConfirmDeleteId(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

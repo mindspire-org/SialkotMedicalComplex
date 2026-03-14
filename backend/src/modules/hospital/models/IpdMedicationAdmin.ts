@@ -3,7 +3,7 @@ import { Schema, model, models } from 'mongoose'
 const IpdMedicationAdminSchema = new Schema({
   orderId: { type: Schema.Types.ObjectId, ref: 'Hospital_IpdMedicationOrder', required: true, index: true },
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   givenAt: { type: Date, default: Date.now, index: true },
   doseGiven: { type: String },
   byUser: { type: String },

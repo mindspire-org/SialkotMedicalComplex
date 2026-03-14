@@ -4,7 +4,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 
 import { pharmacyApi } from '../../utils/api'
 
-import { ArrowLeft, Plus, Edit2, Trash2, Save, ChevronDown, ChevronUp, Package } from 'lucide-react'
+import { ArrowLeft, Plus, Edit2, Trash2, Save, ChevronDown, ChevronUp, Package, Pause, FileStack, X } from 'lucide-react'
 
 import Pharmacy_AddSupplierDialog, { type Supplier } from '../../components/pharmacy/pharmacy_AddSupplierDialog'
 import Pharmacy_AddCompanyDialog, { type Company } from '../../components/pharmacy/pharmacy_AddCompanyDialog'
@@ -118,11 +118,14 @@ export default function Pharmacy_AddInvoicePage() {
 
   const [invoiceNo, setInvoiceNo] = useState('')
 
-  const [invoiceDate, setInvoiceDate] = useState('')
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   const [showTaxSection, setShowTaxSection] = useState(false)
 
-  
+  // Held invoices state
+  const [heldInvoicesOpen, setHeldInvoicesOpen] = useState(false)
+  const [heldInvoices, setHeldInvoices] = useState<any[]>([])
+  const [heldLoading, setHeldLoading] = useState(false)
 
   // Autocomplete state
 
@@ -511,7 +514,19 @@ export default function Pharmacy_AddInvoicePage() {
 
   }, [isEdit, id])
 
-
+  // Auto-fetch next invoice number for new invoices
+  useEffect(() => {
+    if (isEdit) return
+    let mounted = true
+    ;(async () => {
+      try {
+        const res: any = await pharmacyApi.getNextPurchaseInvoiceNumber()
+        if (!mounted) return
+        if (res?.invoiceNo) setInvoiceNo(res.invoiceNo)
+      } catch {}
+    })()
+    return () => { mounted = false }
+  }, [isEdit])
 
   // Global scanner listener (works when no input is focused). Detects fast key bursts and Enter or inactivity timeout.
 
@@ -884,11 +899,120 @@ export default function Pharmacy_AddInvoicePage() {
 
   const netTotal = taxableBase + lineTaxesTotal + invoiceTaxesTotal
 
+  // Hold invoice handlers
+  const handleHoldInvoice = async () => {
+    const validItems = items.filter(r => (r.name || '').trim() || (r.packs || 0) > 0)
+    if (!validItems.length && !invoiceNo.trim() && !supplierId) {
+      showToast('error', 'Nothing to hold')
+      return
+    }
+    try {
+      await pharmacyApi.createHoldPurchaseInvoice({
+        invoiceNo,
+        invoiceDate,
+        supplierId,
+        supplierName,
+        companyId,
+        companyName,
+        items: validItems.map(r => ({
+          ...r,
+          id: r.id || crypto.randomUUID(),
+        })),
+        invoiceTaxes,
+        discount,
+      })
+      showToast('success', 'Invoice held')
+      // Reset form
+      setItems([{ id: crypto.randomUUID() }])
+      setInvoiceNo('')
+      setInvoiceDate(new Date().toISOString().slice(0, 10))
+      setSupplierId('')
+      setSupplierName('')
+      setCompanyId('')
+      setCompanyName('')
+      setInvoiceTaxes([])
+    } catch {
+      showToast('error', 'Failed to hold invoice')
+    }
+  }
+
+  const loadHeldInvoices = async () => {
+    setHeldLoading(true)
+    try {
+      const res: any = await pharmacyApi.listHoldPurchaseInvoices()
+      setHeldInvoices(res?.items || [])
+    } catch {
+      setHeldInvoices([])
+    } finally {
+      setHeldLoading(false)
+    }
+  }
+
+  const loadHeldInvoice = async (id: string) => {
+    try {
+      const doc: any = await pharmacyApi.getHoldPurchaseInvoice(id)
+      if (!doc) return
+      setInvoiceNo(doc.invoiceNo || '')
+      setInvoiceDate(doc.invoiceDate || new Date().toISOString().slice(0, 10))
+      setSupplierId(doc.supplierId || '')
+      setSupplierName(doc.supplierName || '')
+      setCompanyId(doc.companyId || '')
+      setCompanyName(doc.companyName || '')
+      const mappedItems: ItemRow[] = (doc.items || []).map((l: any) => ({
+        id: l.id || crypto.randomUUID(),
+        name: l.name || '',
+        genericName: l.genericName || '',
+        expiry: l.expiry || '',
+        packs: l.packs || 0,
+        unitsPerPack: l.unitsPerPack || 1,
+        buyPerPack: l.buyPerPack || 0,
+        salePerPack: l.salePerPack || 0,
+        totalItems: l.totalItems || 0,
+        buyPerUnit: l.buyPerUnit || 0,
+        salePerUnit: l.salePerUnit || 0,
+        lineTaxType: l.lineTaxType || 'percent',
+        lineTaxValue: l.lineTaxValue || 0,
+        category: l.category || '',
+        barcode: l.barcode || '',
+        minStock: l.minStock,
+        inventoryKey: l.inventoryKey || '',
+        defaultDiscountPct: l.defaultDiscountPct,
+        collapsed: l.collapsed || false,
+      }))
+      setItems(mappedItems.length ? mappedItems : [{ id: crypto.randomUUID() }])
+      const taxes: InvoiceTax[] = (doc.invoiceTaxes || []).map((t: any) => ({
+        id: t.id || crypto.randomUUID(),
+        name: t.name || '',
+        value: t.value || 0,
+        type: t.type || 'percent',
+        applyOn: t.applyOn || 'gross',
+      }))
+      setInvoiceTaxes(taxes)
+      // Delete the held invoice after loading
+      await pharmacyApi.deleteHoldPurchaseInvoice(id)
+      setHeldInvoicesOpen(false)
+      setHeldInvoices(prev => prev.filter(h => h._id !== id))
+      showToast('success', 'Held invoice loaded')
+    } catch {
+      showToast('error', 'Failed to load held invoice')
+    }
+  }
+
+  const deleteHeldInvoice = async (id: string) => {
+    try {
+      await pharmacyApi.deleteHoldPurchaseInvoice(id)
+      setHeldInvoices(prev => prev.filter(h => h._id !== id))
+      showToast('success', 'Held invoice deleted')
+    } catch {
+      showToast('error', 'Failed to delete held invoice')
+    }
+  }
+
   
 
   return (
 
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="min-h-dvh bg-transparent">
 
       {toast && (
 
@@ -982,7 +1106,7 @@ export default function Pharmacy_AddInvoicePage() {
 
       {/* Header */}
 
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-700">
+      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-700 dark:bg-slate-900/70">
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 
@@ -1015,6 +1139,18 @@ export default function Pharmacy_AddInvoicePage() {
             </div>
 
             <div className="flex items-center gap-2">
+
+              <button
+                onClick={() => { setHeldInvoicesOpen(true); loadHeldInvoices() }}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+                title="Held Invoices"
+              >
+                <FileStack className="h-4 w-4" />
+                <span>Held</span>
+                {heldInvoices.length > 0 && (
+                  <span className="ml-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700">{heldInvoices.length}</span>
+                )}
+              </button>
 
               <button
 
@@ -1188,6 +1324,17 @@ export default function Pharmacy_AddInvoicePage() {
 
               </button>
 
+              {!isEdit && (
+                <button
+                  onClick={handleHoldInvoice}
+                  className="inline-flex items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+                  title="Hold Invoice"
+                >
+                  <Pause className="h-4 w-4" />
+                  Hold
+                </button>
+              )}
+
             </div>
 
           </div>
@@ -1200,7 +1347,7 @@ export default function Pharmacy_AddInvoicePage() {
 
       {/* Main Content */}
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-full px-4 sm:px-6 lg:px-8 py-8">
 
         <div className="grid gap-6 lg:grid-cols-3">
 
@@ -1355,7 +1502,7 @@ export default function Pharmacy_AddInvoicePage() {
 
                   {items.map((row, idx) => (
 
-                    <div key={row.id} className={`rounded-lg border ${row.collapsed ? 'border-slate-200 bg-slate-50' : 'border-indigo-200 bg-white'} p-4 dark:border-slate-700 dark:bg-slate-800`}>
+                    <div key={row.id} className={`rounded-lg border ${row.collapsed ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40' : 'border-indigo-200 bg-white dark:border-slate-700 dark:bg-slate-800'} p-4`}>
 
                       {row.collapsed ? (
 
@@ -2063,50 +2210,37 @@ export default function Pharmacy_AddInvoicePage() {
 
             {/* Totals Summary */}
 
-            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl shadow-sm border border-emerald-200 dark:from-emerald-900/20 dark:to-emerald-900/30 dark:border-emerald-800">
+            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl shadow-sm border border-emerald-200">
 
               <div className="px-6 py-4">
-
-                <h2 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200">Invoice Summary</h2>
-
+                <h2 className="text-lg font-semibold text-emerald-800">Invoice Summary</h2>
               </div>
+              
+              <div className="px-6 pb-6">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-emerald-700 font-medium">Gross Amount:</span>
+                    <span className="text-emerald-900 font-bold">PKR {gross.toFixed(2)}</span>
+                  </div>
 
-              <div className="px-6 pb-6 space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-emerald-700 font-medium">Line Taxes:</span>
+                    <span className="text-emerald-900 font-bold text-rose-600">PKR {lineTaxesTotal.toFixed(2)}</span>
+                  </div>
 
-                <div className="flex justify-between text-sm">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-emerald-700 font-medium">Invoice Taxes:</span>
+                    <span className="text-emerald-900 font-bold text-rose-600">PKR {invoiceTaxesTotal.toFixed(2)}</span>
+                  </div>
 
-                  <span className="text-emerald-700 dark:text-emerald-300">Gross Amount:</span>
+                  <div className="h-px bg-emerald-200" />
 
-                  <span className="font-medium text-emerald-900 dark:text-emerald-100">PKR {gross.toFixed(2)}</span>
-
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg font-bold text-emerald-900">Net Total:</span>
+                    <span className="text-xl font-extrabold text-emerald-900">PKR {netTotal.toFixed(2)}</span>
+                  </div>
                 </div>
-
-                <div className="flex justify-between text-sm">
-
-                  <span className="text-emerald-700 dark:text-emerald-300">Line Taxes:</span>
-
-                  <span className="font-medium text-emerald-900 dark:text-emerald-100">PKR {lineTaxesTotal.toFixed(2)}</span>
-
-                </div>
-
-                <div className="flex justify-between text-sm">
-
-                  <span className="text-emerald-700 dark:text-emerald-300">Invoice Taxes:</span>
-
-                  <span className="font-medium text-emerald-900 dark:text-emerald-100">PKR {invoiceTaxesTotal.toFixed(2)}</span>
-
-                </div>
-
-                <div className="flex justify-between pt-3 border-t border-emerald-300 dark:border-emerald-700">
-
-                  <span className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Net Total:</span>
-
-                  <span className="text-xl font-black text-emerald-900 dark:text-emerald-100">PKR {netTotal.toFixed(2)}</span>
-
-                </div>
-
               </div>
-
             </div>
 
           </div>
@@ -2132,6 +2266,58 @@ export default function Pharmacy_AddInvoicePage() {
         onClose={() => setAddCompanyOpen(false)}
         onSave={addCompany}
       />
+
+      {/* Held Invoices Dialog */}
+      {heldInvoicesOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Held Invoices</h3>
+              <button onClick={() => setHeldInvoicesOpen(false)} className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
+                <X className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+            {heldLoading ? (
+              <div className="py-8 text-center text-slate-500">Loading...</div>
+            ) : heldInvoices.length === 0 ? (
+              <div className="py-8 text-center text-slate-500">No held invoices</div>
+            ) : (
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {heldInvoices.map((h: any) => (
+                  <div key={h._id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900 dark:text-slate-100">{h.invoiceNo || 'No Invoice#'}</span>
+                        <span className="text-xs text-slate-500">{h.invoiceDate || ''}</span>
+                      </div>
+                      <div className="text-sm text-slate-500 truncate">
+                        {h.supplierName || 'No supplier'} • {h.items?.length || 0} items
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {new Date(h.createdAtIso).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => loadHeldInvoice(h._id)}
+                        className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => deleteHeldInvoice(h._id)}
+                        className="rounded-md bg-rose-100 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-200"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
 

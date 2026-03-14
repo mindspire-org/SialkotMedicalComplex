@@ -100,133 +100,133 @@ export default function Pharmacy_Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-900">Dashboard</h2>
+      <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h2>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div className={`rounded-xl border bg-emerald-50 border-emerald-200 p-4`}>
+        <div className={`rounded-xl border bg-emerald-50 border-emerald-200 p-4 dark:bg-emerald-900/20 dark:border-emerald-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Today's Sales</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {salesToday.toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-emerald-400">Today's Sales</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {salesToday.toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><DollarSign className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-emerald-800/40 dark:text-emerald-300"><DollarSign className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-violet-50 border-violet-200 p-4`}>
+        <div className={`rounded-xl border bg-violet-50 border-violet-200 p-4 dark:bg-violet-900/20 dark:border-violet-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">This Month's Sales</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {salesMonth.toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-violet-400">This Month's Sales</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {salesMonth.toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><TrendingUp className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-violet-800/40 dark:text-violet-300"><TrendingUp className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-green-50 border-green-200 p-4`}>
+        <div className={`rounded-xl border bg-green-50 border-green-200 p-4 dark:bg-green-900/20 dark:border-green-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Cash Sales</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {cashSalesToday.toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-green-400">Cash Sales</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {cashSalesToday.toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><DollarSign className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-green-800/40 dark:text-green-300"><DollarSign className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-amber-50 border-amber-200 p-4`}>
+        <div className={`rounded-xl border bg-amber-50 border-amber-200 p-4 dark:bg-amber-900/20 dark:border-amber-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Credit Sales</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {creditSalesToday.toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-amber-400">Credit Sales</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {creditSalesToday.toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><CreditCard className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-amber-800/40 dark:text-amber-300"><CreditCard className="h-4 w-4" /></div>
           </div>
         </div>
 
         {/* Real data cards */}
-        <div className={`rounded-xl border bg-sky-50 border-sky-200 p-4`}>
+        <div className={`rounded-xl border bg-sky-50 border-sky-200 p-4 dark:bg-sky-900/20 dark:border-sky-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">This Month's Purchases</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {purchasesTotal.toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-sky-400">This Month's Purchases</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {purchasesTotal.toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><ShoppingCart className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-sky-800/40 dark:text-sky-300"><ShoppingCart className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-cyan-50 border-cyan-200 p-4`}>
+        <div className={`rounded-xl border bg-cyan-50 border-cyan-200 p-4 dark:bg-cyan-900/20 dark:border-cyan-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Total Inventory</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">{stats?.totalInventoryOnHand ?? 0}</div>
+              <div className="text-sm text-slate-600 dark:text-cyan-400">Total Inventory</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{stats?.totalInventoryOnHand ?? 0}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><Package className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-cyan-800/40 dark:text-cyan-300"><Package className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-yellow-50 border-yellow-200 p-4`}>
+        <div className={`rounded-xl border bg-yellow-50 border-yellow-200 p-4 dark:bg-yellow-900/20 dark:border-yellow-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Low Stock Items</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">{stats?.lowStockCount ?? 0}</div>
+              <div className="text-sm text-slate-600 dark:text-yellow-400">Low Stock Items</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{stats?.lowStockCount ?? 0}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><AlertTriangle className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-yellow-800/40 dark:text-yellow-300"><AlertTriangle className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-rose-50 border-rose-200 p-4`}>
+        <div className={`rounded-xl border bg-rose-50 border-rose-200 p-4 dark:bg-rose-900/20 dark:border-rose-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Out of Stock</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">{stats?.outOfStockCount ?? 0}</div>
+              <div className="text-sm text-slate-600 dark:text-rose-400">Out of Stock</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{stats?.outOfStockCount ?? 0}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><Ban className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-rose-800/40 dark:text-rose-300"><Ban className="h-4 w-4" /></div>
           </div>
         </div>
-        <div className={`rounded-xl border bg-indigo-50 border-indigo-200 p-4`}>
+        <div className={`rounded-xl border bg-indigo-50 border-indigo-200 p-4 dark:bg-indigo-900/20 dark:border-indigo-800`}>
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-sm text-slate-600">Total Stock Value</div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">Rs {(stats?.stockSaleValue ?? 0).toFixed(2)}</div>
+              <div className="text-sm text-slate-600 dark:text-indigo-400">Total Stock Value</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">Rs {(stats?.stockSaleValue ?? 0).toFixed(2)}</div>
             </div>
-            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm"><DollarSign className="h-4 w-4" /></div>
+            <div className="rounded-md bg-white/60 p-2 text-slate-700 shadow-sm dark:bg-indigo-800/40 dark:text-indigo-300"><DollarSign className="h-4 w-4" /></div>
           </div>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-slate-600" />
-              <div className="text-sm font-medium text-slate-700">Recent Sales</div>
+              <Bell className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Recent Sales</div>
             </div>
           </div>
           {recentSales.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">No recent sales</div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-400">No recent sales</div>
           ) : (
             <div className="space-y-2">
               {recentSales.map((s, idx)=> (
-                <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700">
                   <div className="min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{s.billNo}</div>
-                    <div className="text-xs text-slate-600 truncate">{new Date(s.datetime).toLocaleString()} · {s.customer || 'Walk-in'}</div>
+                    <div className="font-medium text-slate-800 dark:text-slate-200 truncate">{s.billNo}</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400 truncate">{new Date(s.datetime).toLocaleString()} · {s.customer || 'Walk-in'}</div>
                   </div>
-                  <div className="shrink-0 font-semibold text-slate-900">Rs {Number(s.total||0).toFixed(2)}</div>
+                  <div className="shrink-0 font-semibold text-slate-900 dark:text-white">Rs {Number(s.total||0).toFixed(2)}</div>
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
           <div className="mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <div className="text-sm font-medium text-slate-700">Expiring Soon / Expired</div>
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Expiring Soon / Expired</div>
           </div>
           {expiringSoon.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">No expiring or expired medicines</div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-400">No expiring or expired medicines</div>
           ) : (
             <div className="space-y-2">
               {expiringSoon.map((it, idx)=> (
-                <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <div className="font-medium text-slate-800">{it.name}</div>
-                  <div className="text-slate-600">{it.expiry}</div>
-                  <div className="text-slate-600">On hand: {it.onHand}</div>
+                <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700">
+                  <div className="font-medium text-slate-800 dark:text-slate-200">{it.name}</div>
+                  <div className="text-slate-600 dark:text-slate-400">{it.expiry}</div>
+                  <div className="text-slate-600 dark:text-slate-400">On hand: {it.onHand}</div>
                 </div>
               ))}
             </div>
@@ -234,10 +234,10 @@ export default function Pharmacy_Dashboard() {
         </section>
       </div>
 
-      <div className="flex items-center justify-end gap-3 text-xs text-slate-500">
+      <div className="flex items-center justify-end gap-3 text-xs text-slate-500 dark:text-slate-400">
         <Clock className="h-4 w-4" />
         <span>Last updated: {lastUpdated}</span>
-        <button type="button" onClick={()=> setTick(t=>t+1)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-50">
+        <button type="button" onClick={()=> setTick(t=>t+1)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
           <RefreshCw className="h-3.5 w-3.5" /> Refresh
         </button>
       </div>

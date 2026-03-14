@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdLabLinkSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   externalLabOrderId: { type: String },
   testIds: [{ type: String }],
   status: { type: String },

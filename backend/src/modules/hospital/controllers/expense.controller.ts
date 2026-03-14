@@ -10,29 +10,34 @@ export async function list(req: Request, res: Response){
   const from = q.success && q.data.from ? q.data.from : today
   const to = q.success && q.data.to ? q.data.to : today
   const rows = await HospitalExpense.find({ dateIso: { $gte: from, $lte: to } })
-    .populate('departmentId', 'name')
     .sort({ dateIso: -1, createdAt: -1 })
     .lean()
-  const normalized = (rows as any[]).map(r => {
-    const dep = r.departmentId && typeof r.departmentId === 'object' ? r.departmentId : null
-    const departmentName = dep?.name ? String(dep.name) : ''
-    const departmentId = dep?._id ? String(dep._id) : (r.departmentId ? String(r.departmentId) : undefined)
-    return { ...r, departmentId, departmentName }
-  })
+  const normalized = (rows as any[]).map(r => ({
+    ...r,
+    id: String(r._id),
+    departmentName: r.departmentName || '',
+    categoryName: r.categoryName || r.category || '',
+    createdByUsername: r.createdByUsername || r.createdBy || '',
+  }))
   const total = normalized.reduce((s, r) => s + (r.amount || 0), 0)
   res.json({ expenses: normalized, total })
 }
 
 export async function create(req: Request, res: Response){
   const data = createExpenseSchema.parse(req.body)
-  const actor = String(
-    (req as any).user?.name ||
+  // Determine createdByUsername: prefer req.user, fallback to body
+  const createdByUsername = String(
     (req as any).user?.username ||
+    (req as any).user?.name ||
     (req as any).user?.email ||
-    (req as any).user?._id ||
+    (data as any).createdByUsername ||
     'system'
   )
-  const row = await HospitalExpense.create({ ...data, createdBy: actor })
+  const row = await HospitalExpense.create({
+    ...data,
+    createdBy: createdByUsername,
+    createdByUsername,
+  })
   // Finance Journal: record expense; if method is Cash, tag sessionId for drawer reconciliation
   try{
     const dateIso = String((row as any)?.dateIso || data.dateIso || new Date().toISOString().slice(0,10))
@@ -48,7 +53,11 @@ export async function create(req: Request, res: Response){
         }
       } catch {}
     }
-    const tags: any = { departmentId: (row as any)?.departmentId ? String((row as any)?.departmentId) : undefined }
+    const tags: any = {
+      departmentId: (row as any)?.expenseDepartmentId || (row as any)?.departmentId || undefined,
+      createdByUserId: (req as any).user?._id || (req as any).user?.id || undefined,
+      createdByUsername,
+    }
     if (sessionId) tags.sessionId = sessionId
     const creditAccount = isCash ? 'CASH' : 'BANK'
     const lines = [
@@ -58,6 +67,14 @@ export async function create(req: Request, res: Response){
     await FinanceJournal.create({ dateIso, refType: 'expense', refId: String((row as any)?._id || ''), memo: (row as any)?.note || (data as any)?.note || 'Expense', lines })
   } catch {}
   res.status(201).json({ expense: row })
+}
+
+export async function update(req: Request, res: Response){
+  const id = req.params.id
+  const data = createExpenseSchema.partial().parse(req.body)
+  const row = await HospitalExpense.findByIdAndUpdate(id, data, { new: true })
+  if (!row) return res.status(404).json({ error: 'Expense not found' })
+  res.json({ expense: row })
 }
 
 export async function remove(req: Request, res: Response){

@@ -12,6 +12,7 @@ const ReturnSchema = new Schema({
   datetime: { type: String, required: true }, // ISO
   reference: { type: String, required: true }, // billNo or invoice
   party: { type: String, required: true }, // customer name or supplier name
+  phone: { type: String, default: '' }, // customer phone
   items: { type: Number, required: true },
   total: { type: Number, required: true },
   lines: { type: [LineSchema], default: [] },
@@ -23,6 +24,7 @@ export type ReturnDoc = {
   datetime: string
   reference: string
   party: string
+  phone?: string
   items: number
   total: number
   lines: { medicineId:string; name:string; qty:number; amount:number }[]

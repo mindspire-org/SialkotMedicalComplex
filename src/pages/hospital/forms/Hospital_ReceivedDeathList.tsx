@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { hospitalApi, api as coreApi } from '../../../utils/api'
+import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 
 export default function Hospital_ReceivedDeathList(){
   const navigate = useNavigate()
@@ -10,14 +11,16 @@ export default function Hospital_ReceivedDeathList(){
   const [total, setTotal] = useState(0)
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [encounterType, setEncounterType] = useState<string>('')
 
-  useEffect(()=>{ load() }, [page, limit])
+  useEffect(()=>{ load() }, [page, limit, encounterType])
 
   async function load(){
     setLoading(true)
     try {
       // Preferred: server-side list endpoint
-      const res: any = await hospitalApi.listIpdReceivedDeaths({ q, page, limit }).catch(()=>null)
+      const res: any = await hospitalApi.listIpdReceivedDeaths({ q, page, limit, encounterType: encounterType || undefined }).catch(()=>null)
       if (res && Array.isArray(res.results)){
         setRows(res.results)
         setTotal(res.total||res.results.length||0)
@@ -55,22 +58,29 @@ export default function Hospital_ReceivedDeathList(){
   async function onPrint(encounterId: string){
     try {
       const html = await coreApi(`/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/received-death/print`) as any
+      
+      // Use Electron print preview if available
+      const api: any = (window as any).electronAPI
+      try {
+        if (api && typeof api.printPreviewHtml === 'function'){
+          await api.printPreviewHtml(String(html), {})
+          return
+        }
+      } catch {}
+      
+      // Fallback to browser window
       const w = window.open('', '_blank'); if (!w) return
       w.document.write(String(html)); w.document.close(); w.focus()
     } catch {}
   }
 
-  function onDownloadPdf(encounterId: string){
-    const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
-    const isElectronUA = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent || '')
-    const apiBase = (import.meta as any).env?.VITE_API_URL || ((isFile || isElectronUA) ? 'http://127.0.0.1:4000/api' : 'http://localhost:4000/api')
-    const url = `${apiBase}/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/received-death/print-pdf`
-    window.open(url, '_blank')
-  }
-
   async function onDelete(encounterId: string){
-    if (!confirm('Delete this form?')) return
-    try { await hospitalApi.deleteIpdReceivedDeath(encounterId) } catch {}
+    setConfirmDeleteId(encounterId)
+  }
+  async function confirmDelete(){
+    if (!confirmDeleteId) return
+    try { await hospitalApi.deleteIpdReceivedDeath(confirmDeleteId) } catch {}
+    setConfirmDeleteId(null)
     load()
   }
 
@@ -79,6 +89,11 @@ export default function Hospital_ReceivedDeathList(){
       <div className="flex items-center justify-between">
         <div className="text-lg font-semibold text-slate-800">Received Death Forms</div>
         <div className="flex items-center gap-2">
+          <select className="border rounded-md px-2 py-1 text-sm" value={encounterType} onChange={e=>{ setEncounterType(e.target.value); setPage(1) }}>
+            <option value="">All Departments</option>
+            <option value="IPD">IPD</option>
+            <option value="EMERGENCY">Emergency</option>
+          </select>
           <input className="border rounded-md px-2 py-1 text-sm" placeholder="Search name / MRN / CNIC / phone / dept" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') { setPage(1); load() } }} />
           <button className="btn-outline-navy text-sm" onClick={()=>{ setPage(1); load() }} disabled={loading}>Search</button>
         </div>
@@ -91,6 +106,7 @@ export default function Hospital_ReceivedDeathList(){
               <th className="px-3 py-2">Sr #</th>
               <th className="px-3 py-2">Patient</th>
               <th className="px-3 py-2">MRN</th>
+              <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Department</th>
               <th className="px-3 py-2">CNIC</th>
               <th className="px-3 py-2">Phone</th>
@@ -104,6 +120,7 @@ export default function Hospital_ReceivedDeathList(){
                 <td className="px-3 py-2">{sr(i)}</td>
                 <td className="px-3 py-2">{r.patientName||'-'}</td>
                 <td className="px-3 py-2">{r.mrn||'-'}</td>
+                <td className="px-3 py-2">{r.encounterType||'IPD'}</td>
                 <td className="px-3 py-2">{r.department||'-'}</td>
                 <td className="px-3 py-2">{r.cnic||'-'}</td>
                 <td className="px-3 py-2">{r.phone||'-'}</td>
@@ -111,15 +128,14 @@ export default function Hospital_ReceivedDeathList(){
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
                     <button className="btn-outline-navy text-xs" onClick={()=> navigate(`/hospital/ipd/admissions/${encodeURIComponent(r.encounterId)}/forms/received-death`)}>Edit</button>
-                    <button className="btn-outline-navy text-xs" onClick={()=> onPrint(String(r.encounterId))}>Print</button>
-                    <button className="btn-outline-navy text-xs" onClick={()=> onDownloadPdf(String(r.encounterId))}>Download PDF</button>
+                    <button className="btn-outline-navy text-xs" onClick={()=> onPrint(String(r._id))}>Print</button>
                     <button className="btn-outline-navy text-xs" onClick={()=> onDelete(String(r.encounterId))}>Delete</button>
                   </div>
                 </td>
               </tr>
             ))}
             {rows.length===0 && (
-              <tr><td className="px-3 py-6 text-slate-500" colSpan={8}>{loading? 'Loading...':'No records found'}</td></tr>
+              <tr><td className="px-3 py-6 text-slate-500" colSpan={9}>{loading? 'Loading...':'No records found'}</td></tr>
             )}
           </tbody>
         </table>
@@ -134,6 +150,14 @@ export default function Hospital_ReceivedDeathList(){
         <button className="btn-outline-navy" disabled={page<=1} onClick={()=> setPage(p=>Math.max(1,p-1))}>Prev</button>
         <button className="btn-outline-navy" disabled={page>=Math.ceil(total/limit)} onClick={()=> setPage(p=>p+1)}>Next</button>
       </div>
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Confirm Delete"
+        message="Delete this form?"
+        confirmText="Delete"
+        onCancel={()=>setConfirmDeleteId(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

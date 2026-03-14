@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdVitalSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   recordedAt: { type: Date, default: Date.now, index: true },
   bp: { type: String },
   hr: { type: Number },

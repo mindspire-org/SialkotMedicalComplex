@@ -12,7 +12,9 @@ import { hospitalApi } from '../../utils/api'
 
 const formDefs = [
   { key: 'DischargeSummary', label: 'Discharge Summary', render: () => null },
-  { key: 'Invoice', label: 'Final Invoice', render: (p: any) => <IpdInvoiceSlip patientId={p?.id} embedded /> },
+  { key: 'Invoice', label: 'Final Invoice', render: (p: any) => (
+    <IpdInvoiceSlip encounterId={p?.encounterId} encounterType={p?.encounterType} patient={p} embedded />
+  ) },
   { key: 'ShortStay', label: 'Short Stay', render: (p: any) => <Hospital_ShortStayForm encounterId={p?.encounterId} patient={p} /> },
   { key: 'DeathCertificate', label: 'Death Certificate', render: (p: any) => <DeathCertificateForm encounterId={p?.encounterId} patient={p} /> },
   { key: 'BirthCertificate', label: 'Birth Certificate', render: (p: any) => <Hospital_BirthCertificateForm encounterId={p?.encounterId} patient={p} /> },
@@ -24,18 +26,21 @@ const formDefs = [
 export default function Hospital_DischargeWizard(){
   const { id } = useParams()
   const [encounterId, setEncounterId] = useState<string>('')
+  const [encounterType, setEncounterType] = useState<'IPD'|'EMERGENCY'|null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const [patient, setPatient] = useState<any>({ id: '', name: '', bed: '', doctor: '', admitted: '', mrn: '', admissionNo: '' })
+  const [patient, setPatient] = useState<any>({ id: '', name: '', bed: '', doctor: '', admitted: '', mrn: '', admissionNo: '', address: '', phone: '', age: '', gender: '', encounterType: null })
 
   // Resolve encounter (treat :id as encounterId if possible; else fallback by patientId)
   useEffect(()=>{ (async()=>{
     const routeId = String(id||'')
-    if (!routeId) return
+    if (!routeId) { setLoading(false); return }
     try {
       const e = await hospitalApi.getIPDAdmissionById(routeId) as any
       const enc = e?.encounter
       if (enc && enc._id){
         setEncounterId(String(enc._id))
+        setEncounterType('IPD')
         setPatient({
           id: String(enc.patientId?._id||''),
           name: String(enc.patientId?.fullName||''),
@@ -48,16 +53,46 @@ export default function Hospital_DischargeWizard(){
           age: enc.patientId?.age||'',
           gender: enc.patientId?.gender||'',
           admissionNo: enc.admissionNo || '',
+          encounterType: 'IPD',
         })
+        setLoading(false)
         return
       }
     } catch {}
+
+    // ER encounter fallback (routeId is encounterId)
+    try {
+      const s: any = await hospitalApi.erBillingSummary(routeId).catch(()=>null)
+      const enc = s?.encounter
+      if (enc && enc._id){
+        setEncounterId(String(enc._id))
+        setEncounterType('EMERGENCY')
+        setPatient({
+          id: String(enc.patientId?._id||''),
+          name: String(enc.patientId?.fullName||''),
+          bed: enc.bedLabel||'',
+          doctor: enc.doctorId?.name||'',
+          admitted: enc.startAt,
+          mrn: enc.patientId?.mrn||'',
+          address: enc.patientId?.address||'',
+          phone: enc.patientId?.phoneNormalized||'',
+          age: enc.patientId?.age||'',
+          gender: enc.patientId?.gender||'',
+          admissionNo: enc.admissionNo || '',
+          encounterType: 'EMERGENCY',
+        })
+        setLoading(false)
+        return
+      }
+    } catch {}
+
     // Fallback: assume :id is patientId -> get most recent admitted/discharged
     try {
       const res = await hospitalApi.listIPDAdmissions({ patientId: routeId, limit: 1 }) as any
       const enc = (res?.admissions||[])[0]
       if (enc){
         setEncounterId(String(enc._id))
+        setEncounterType('IPD')
         setPatient({
           id: routeId,
           name: String(enc.patientId?.fullName||''),
@@ -70,14 +105,24 @@ export default function Hospital_DischargeWizard(){
           age: enc.patientId?.age||'',
           gender: enc.patientId?.gender||'',
           admissionNo: enc.admissionNo || '',
+          encounterType: 'IPD',
         })
       }
     } catch {}
+    setLoading(false)
   })() }, [id])
 
   const [step, setStep] = useState(0)
   const [selected, setSelected] = useState<string[]>(['DischargeSummary','Invoice'])
   
+
+  if (loading) {
+    return (
+      <div className="p-4 text-slate-500 text-center">
+        Loading encounter details...
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -119,10 +164,10 @@ export default function Hospital_DischargeWizard(){
                   <div className="mb-2 text-sm font-medium text-slate-700">{fd.label}</div>
                   {/* Minimal structured fields for backend persistence */}
                   {k==='DischargeSummary' && (
-                    <IpdDischargeForm encounterId={encounterId} patient={patient} />
+                    <IpdDischargeForm encounterId={encounterId} patient={{ ...patient, encounterType }} />
                   )}
                   <div className="overflow-auto">
-                    {k!=='DischargeSummary' && fd.render({ ...patient, encounterId })}
+                    {k!=='DischargeSummary' && fd.render({ ...patient, encounterId, encounterType })}
                   </div>
                 </div>
               )

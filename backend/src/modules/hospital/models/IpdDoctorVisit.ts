@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdDoctorVisitSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   doctorId: { type: Schema.Types.ObjectId, ref: 'Hospital_Doctor' },
   when: { type: Date, default: Date.now, index: true },
   category: { type: String, enum: ['visit','progress'], default: 'visit', index: true },

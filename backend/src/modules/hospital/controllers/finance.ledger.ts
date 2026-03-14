@@ -1,6 +1,5 @@
 import { Types } from 'mongoose'
 import { FinanceJournal, JournalLine } from '../models/FinanceJournal'
-import { HospitalDoctor } from '../models/Doctor'
 
 function todayIso(){
   return new Date().toISOString().slice(0,10)
@@ -38,9 +37,7 @@ export async function createDoctorPayout(doctorId: string, amount: number, metho
 
 export async function manualDoctorEarning(data: { doctorId: string; departmentId?: string; amount: number; revenueAccount?: 'OPD_REVENUE'|'PROCEDURE_REVENUE'|'IPD_REVENUE'; paidMethod?: 'Cash'|'Bank'|'AR'; memo?: string; sharePercent?: number }){
   const dateIso = todayIso()
-  const doc: any = data.doctorId ? await HospitalDoctor.findById(data.doctorId).lean() : null
-  const percent = typeof data.sharePercent === 'number' ? data.sharePercent : ((doc as any)?.shares ?? 100)
-  const share = round2((data.amount || 0) * (Math.max(percent,0) / 100))
+  // Doctor share calculation removed - manual calculation only
   const debitAccount = data.paidMethod === 'Bank' ? 'BANK' : (data.paidMethod === 'AR' ? 'AR' : 'CASH')
   const revenueAccount = data.revenueAccount || 'OPD_REVENUE'
   const tagsBase: any = { }
@@ -50,16 +47,12 @@ export async function manualDoctorEarning(data: { doctorId: string; departmentId
   const lines: JournalLine[] = [
     { account: debitAccount, debit: data.amount, tags: { ...tagsBase } },
     { account: revenueAccount, credit: data.amount, tags: { ...tagsBase } },
-    { account: 'DOCTOR_SHARE_EXPENSE', debit: share, tags: { ...tagsBase } },
-    { account: 'DOCTOR_PAYABLE', credit: share, tags: { ...tagsBase } },
   ]
   return await FinanceJournal.create({ dateIso, refType: 'manual_doctor_earning', refId: data.doctorId, memo: data.memo, lines })
 }
 
 export async function postOpdTokenJournal(args: { tokenId: string; dateIso: string; fee: number; doctorId?: string; departmentId?: string; patientId?: string; tokenNo?: string; paidMethod?: 'Cash'|'Bank'|'AR' }){
-  const doc: any = args.doctorId ? await HospitalDoctor.findById(args.doctorId).lean() : null
-  const percent = (doc as any)?.shares ?? 100
-  const share = round2((args.fee || 0) * (Math.max(percent,0) / 100))
+  // Doctor share calculation removed - manual calculation only
   const debitAccount = args.paidMethod === 'Bank' ? 'BANK' : (args.paidMethod === 'Cash' ? 'CASH' : 'AR')
   const tagsBase: any = { }
   if (args.doctorId) tagsBase.doctorId = toOid(args.doctorId)
@@ -70,8 +63,6 @@ export async function postOpdTokenJournal(args: { tokenId: string; dateIso: stri
   const lines: JournalLine[] = [
     { account: debitAccount, debit: args.fee, tags: { ...tagsBase } },
     { account: 'OPD_REVENUE', credit: args.fee, tags: { ...tagsBase } },
-    { account: 'DOCTOR_SHARE_EXPENSE', debit: share, tags: { ...tagsBase } },
-    { account: 'DOCTOR_PAYABLE', credit: share, tags: { ...tagsBase } },
   ]
   const memo = `OPD Token ${args.tokenNo ? ('#'+args.tokenNo) : ''}`.trim()
   return await FinanceJournal.create({ dateIso: args.dateIso || todayIso(), refType: 'opd_token', refId: args.tokenId, memo, lines })

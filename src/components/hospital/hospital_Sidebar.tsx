@@ -24,11 +24,15 @@ import {
   CreditCard,
   Wallet,
   ChevronRight,
-  Wrench,
-  AlertTriangle,
-  Trash2,
-  Boxes,
-  QrCode,
+  Package,
+  Truck,
+  ClipboardList,
+  AlertCircle,
+  BarChart3,
+  Ambulance,
+  Fuel,
+  Route,
+  Siren,
 } from 'lucide-react'
 
 type NavItem = { to: string; label: string; end?: boolean; icon: LucideIcon }
@@ -40,6 +44,11 @@ const navTop: NavItem[] = [
   { to: '/hospital/token-generator', label: 'Token Generator', icon: PlusCircle },
   { to: '/hospital/today-tokens', label: "Today's Tokens", icon: Ticket },
   { to: '/hospital/token-history', label: 'Token History', icon: History },
+  { to: '/hospital/my-activity-report', label: 'My Activity Report', icon: Activity },
+  { to: '/hospital/emergency', label: 'Emergency', icon: Siren },
+  { to: '/hospital/emergency-services', label: 'Emergency Services', icon: ReceiptText },
+  { to: '/hospital/er-billing', label: 'ER Billing', icon: CreditCard },
+  { to: '/hospital/er-transactions', label: 'Recent ER Payments', icon: CreditCard },
   { to: '/hospital/departments', label: 'Departments', icon: Building2 },
 ]
 
@@ -53,30 +62,6 @@ const navBottom: NavItem[] = [
 ]
 
 const groups: { label: string; icon: LucideIcon; items: NavItem[] }[] = [
-  {
-    label: 'Corporate Panel',
-    icon: Building2,
-    items: [
-      { to: '/hospital/corporate', label: 'Corporate Dashboard', icon: Building2 },
-      { to: '/hospital/corporate/companies', label: 'Companies', icon: Building2 },
-      { to: '/hospital/corporate/rate-rules', label: 'Rate Rules', icon: Settings },
-      { to: '/hospital/corporate/transactions', label: 'Transactions', icon: CreditCard },
-      { to: '/hospital/corporate/claims', label: 'Claims', icon: ReceiptText },
-      { to: '/hospital/corporate/payments', label: 'Payments', icon: Wallet },
-      { to: '/hospital/corporate/reports', label: 'Reports', icon: ScrollText },
-    ],
-  },
-  {
-    label: 'FBR',
-    icon: QrCode,
-    items: [
-      { to: '/hospital/fbr', label: 'FBR Dashboard', icon: QrCode },
-      { to: '/hospital/fbr/settings', label: 'FBR Settings', icon: Settings },
-      { to: '/hospital/fbr/logs', label: 'FBR Logs', icon: ScrollText },
-      { to: '/hospital/fbr/reports', label: 'FBR Reports', icon: ReceiptText },
-      { to: '/hospital/fbr/credentials', label: 'FBR Credentials', icon: Settings },
-    ],
-  },
   {
     label: 'IPD Management',
     icon: Activity,
@@ -128,25 +113,35 @@ const groups: { label: string; icon: LucideIcon; items: NavItem[] }[] = [
     icon: ReceiptText,
     items: [
       { to: '/hospital/finance/transactions', label: 'Transactions', icon: CreditCard },
-      { to: '/hospital/finance/expenses', label: 'Expense History', icon: ReceiptText },
+      { to: '/hospital/finance/expenses', label: 'Add Expense ', icon: ReceiptText },
     ],
   },
   {
-    label: 'Equipment Management',
-    icon: Wrench,
+    label: 'Store / Inventory',
+    icon: Package,
     items: [
-      { to: '/hospital/equipment', label: 'Equipment', icon: Wrench },
-      { to: '/hospital/equipment-due', label: 'Equipment Due', icon: CalendarDays },
-      { to: '/hospital/equipment/kpis', label: 'Equipment KPIs', icon: Activity },
-      { to: '/hospital/equipment/breakdown-register', label: 'Breakdown Register', icon: AlertTriangle },
-      { to: '/hospital/equipment/condemnation-register', label: 'Condemnation Register', icon: Trash2 },
+      { to: '/hospital/store', label: 'Store Dashboard', icon: LayoutDashboard },
+      { to: '/hospital/store/categories', label: 'Categories', icon: Settings },
+      { to: '/hospital/store/suppliers', label: 'Suppliers', icon: Truck },
+      { to: '/hospital/store/purchase', label: 'New Purchase', icon: ReceiptText },
+      { to: '/hospital/store/purchase-list', label: 'Purchase History', icon: ClipboardList },
+      { to: '/hospital/store/inventory', label: 'Inventory', icon: Package },
+      { to: '/hospital/store/issues', label: 'Issue Stock', icon: ClipboardList },
+      { to: '/hospital/store/issue-history', label: 'Issue History', icon: History },
+      { to: '/hospital/store/alerts', label: 'Alerts', icon: AlertCircle },
+      { to: '/hospital/store/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
   {
-    label: 'Store Management',
-    icon: Boxes,
+    label: 'Ambulance Management',
+    icon: Ambulance,
     items: [
-      { to: '/hospital/store-management', label: 'Store Management', icon: Boxes },
+      { to: '/hospital/ambulance', label: 'Ambulance Dashboard', icon: LayoutDashboard },
+      { to: '/hospital/ambulance/master', label: 'Ambulance Master', icon: Ambulance },
+      { to: '/hospital/ambulance/trips', label: 'Trip Tracking', icon: Route },
+      { to: '/hospital/ambulance/fuel', label: 'Fuel Tracking', icon: Fuel },
+      { to: '/hospital/ambulance/expenses', label: 'Expenses', icon: ReceiptText },
+      { to: '/hospital/ambulance/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
 ]

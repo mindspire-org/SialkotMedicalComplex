@@ -326,7 +326,7 @@ export default function Doctor_PrescriptionHistory() {
       setEditActiveTab('details')
       setEditOpen(true)
     } catch (e: any) {
-      alert(e?.message || 'Failed to load prescription')
+      setToast({ msg: e?.message || 'Failed to load prescription', kind: 'error' })
     }
   }
 
@@ -377,7 +377,7 @@ export default function Doctor_PrescriptionHistory() {
       if (dRaw.notes && String(dRaw.notes).trim()) payload.diagnosticNotes = dRaw.notes
       else if ((editDiagDisplay.notes||'').trim()) payload.diagnosticNotes = editDiagDisplay.notes
     } catch {}
-    if (!payload.items || payload.items.length===0){ alert('Add at least one medicine'); return }
+    if (!payload.items || payload.items.length===0){ setToast({ msg: 'Add at least one medicine', kind: 'error' }); return }
     try {
       // vitals from tab
       try {
@@ -408,7 +408,7 @@ export default function Doctor_PrescriptionHistory() {
       await load()
       try { window.dispatchEvent(new CustomEvent('doctor:pres-saved')) } catch {}
     } catch (e: any) {
-      alert(e?.message || 'Failed to update prescription')
+      setToast({ msg: e?.message || 'Failed to update prescription', kind: 'error' })
     }
   }
 

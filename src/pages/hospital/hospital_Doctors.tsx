@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Hospital_AddDoctorDialog, { type HospitalDoctorInput } from '../../components/hospital/Hospital_AddDoctorDialog'
 import { hospitalApi } from '../../utils/api'
+import Toast, { type ToastState } from '../../components/ui/Toast'
 
 type Doctor = {
   id: string
@@ -10,8 +11,8 @@ type Doctor = {
   specialization: string
   qualification: string
   phone: string
-  fee: number
-  shares: number
+  publicFee: number
+  privateFee: number
   username: string
   password: string
   createdAt: string
@@ -26,13 +27,14 @@ export default function Hospital_Doctors() {
   const [showAdd, setShowAdd] = useState(false)
   // moved to dialog component
   const [editId, setEditId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', primaryDepartmentId: '', phone: '', fee: '0', shares: '0', username: '', password: '' })
+  const [editForm, setEditForm] = useState({ name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', primaryDepartmentId: '', phone: '', publicFee: '0', privateFee: '0', username: '', password: '' })
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([])
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState<ToastState>(null)
 
   useEffect(() => {
     loadDepartments()
@@ -50,6 +52,8 @@ export default function Hospital_Doctors() {
       const deps = departments
       const items = arr.map((d: any) => {
         const depName = d.primaryDepartmentId ? (deps.find((z: { id: string; name: string }) => z.id === String(d.primaryDepartmentId))?.name || '') : ''
+        const pubFee = Number(d.opdPublicFee ?? d.opdBaseFee ?? 0)
+        const prvFee = Number(d.opdPrivateFee ?? d.opdBaseFee ?? 0)
         return {
           id: d._id,
           name: d.name,
@@ -58,8 +62,8 @@ export default function Hospital_Doctors() {
           specialization: d.specialization || '',
           qualification: d.qualification || '',
           phone: d.phone || '',
-          fee: Number(d.opdBaseFee || 0),
-          shares: Number(d.shares || 0),
+          publicFee: pubFee,
+          privateFee: prvFee,
           username: d.username || '',
           password: '',
           createdAt: d.createdAt || new Date().toISOString(),
@@ -92,7 +96,7 @@ export default function Hospital_Doctors() {
       const raw = (e?.message || '').trim()
       let msg = raw
       try { const j = JSON.parse(raw); if (j?.error) msg = j.error } catch {}
-      alert(msg || 'Failed to load doctors')
+      setToast({ type: 'error', message: msg || 'Failed to load doctors' })
       setList([])
       setTotalPages(1)
     } finally {
@@ -112,16 +116,19 @@ export default function Hospital_Doctors() {
   const addDoctor = async (addForm: HospitalDoctorInput) => {
     if (!addForm.name.trim()) return
     try {
+      const pub = Number(addForm.publicFee) || 0
+      const prv = Number(addForm.privateFee) || 0
       await hospitalApi.createDoctor({
         name: addForm.name.trim(),
-        opdBaseFee: Number(addForm.fee) || 0,
+        opdBaseFee: pub,
+        opdPublicFee: pub,
+        opdPrivateFee: prv,
         username: addForm.username.trim() || undefined,
         password: addForm.password || undefined,
         phone: addForm.phone.trim() || undefined,
         specialization: addForm.specialization.trim() || undefined,
         qualification: addForm.qualification.trim() || undefined,
         primaryDepartmentId: addForm.primaryDepartmentId || undefined,
-        shares: Number(addForm.shares) || 0,
         cnic: addForm.cnic.trim() || undefined,
         pmdcNo: addForm.pmdcNo.trim() || undefined,
         active: true,
@@ -132,7 +139,7 @@ export default function Hospital_Doctors() {
       const raw = (e?.message || '').trim()
       let msg = raw
       try { const j = JSON.parse(raw); if (j?.error) msg = j.error } catch {}
-      alert(msg || 'Failed to add doctor')
+      setToast({ type: 'error', message: msg || 'Failed to add doctor' })
     }
   }
 
@@ -140,22 +147,25 @@ export default function Hospital_Doctors() {
     const d = list.find(x => x.id === id)
     if (!d) return
     setEditId(id)
-    setEditForm({ name: d.name, cnic: d.cnic, pmdcNo: d.pmdcNo || '', specialization: d.specialization, qualification: d.qualification || '', primaryDepartmentId: d.primaryDepartmentId || '', phone: d.phone, fee: String(d.fee), shares: String(d.shares), username: d.username, password: d.password })
+    setEditForm({ name: d.name, cnic: d.cnic, pmdcNo: d.pmdcNo || '', specialization: d.specialization, qualification: d.qualification || '', primaryDepartmentId: d.primaryDepartmentId || '', phone: d.phone, publicFee: String(d.publicFee), privateFee: String(d.privateFee), username: d.username, password: d.password })
   }
   const saveEdit = async () => {
     if (!editId) return
     if (!editForm.name.trim()) return
     try {
+      const pub = Number(editForm.publicFee) || 0
+      const prv = Number(editForm.privateFee) || 0
       await hospitalApi.updateDoctor(editId, {
         name: editForm.name.trim(),
-        opdBaseFee: Number(editForm.fee) || 0,
+        opdBaseFee: pub,
+        opdPublicFee: pub,
+        opdPrivateFee: prv,
         username: editForm.username.trim() || undefined,
         password: editForm.password || undefined,
         phone: editForm.phone.trim() || undefined,
         specialization: editForm.specialization.trim() || undefined,
         qualification: editForm.qualification.trim() || undefined,
         primaryDepartmentId: editForm.primaryDepartmentId || undefined,
-        shares: Number(editForm.shares) || 0,
         cnic: editForm.cnic.trim() || undefined,
         pmdcNo: (editForm.pmdcNo || '').trim() || undefined,
       })
@@ -194,8 +204,8 @@ export default function Hospital_Doctors() {
               <th className="px-4 py-2 text-left">Specialization</th>
               <th className="px-4 py-2 text-left">Qualification</th>
               <th className="px-4 py-2 text-left">Department</th>
-              <th className="px-4 py-2 text-left">Fee</th>
-              <th className="px-4 py-2 text-left">Shares (%)</th>
+              <th className="px-4 py-2 text-left">Public Fee</th>
+              <th className="px-4 py-2 text-left">Private Fee</th>
               <th className="px-4 py-2 text-left">Phone</th>
               <th className="px-4 py-2 text-left">Actions</th>
             </tr>
@@ -209,8 +219,8 @@ export default function Hospital_Doctors() {
                 <td className="px-4 py-2">{d.specialization || '-'}</td>
                 <td className="px-4 py-2">{d.qualification || '-'}</td>
                 <td className="px-4 py-2">{d.departmentName || '-'}</td>
-                <td className="px-4 py-2">Rs. {d.fee.toLocaleString()}</td>
-                <td className="px-4 py-2">{d.shares}%</td>
+                <td className="px-4 py-2">Rs. {d.publicFee.toLocaleString()}</td>
+                <td className="px-4 py-2">Rs. {d.privateFee.toLocaleString()}</td>
                 <td className="px-4 py-2">{d.phone || '-'}</td>
                 <td className="px-4 py-2">
                   <div className="flex gap-2">
@@ -288,12 +298,12 @@ export default function Hospital_Doctors() {
                 <input value={editForm.phone} onChange={e=>setEditForm(f=>({ ...f, phone: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-slate-700">Consultation Fee (Rs.)</label>
-                <input value={editForm.fee} onChange={e=>setEditForm(f=>({ ...f, fee: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
+                <label className="mb-1 block text-sm text-slate-700">Public Fee (Rs.)</label>
+                <input value={editForm.publicFee} onChange={e=>setEditForm(f=>({ ...f, publicFee: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-slate-700">Shares (%)</label>
-                <input value={editForm.shares} onChange={e=>setEditForm(f=>({ ...f, shares: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
+                <label className="mb-1 block text-sm text-slate-700">Private Fee (Rs.)</label>
+                <input value={editForm.privateFee} onChange={e=>setEditForm(f=>({ ...f, privateFee: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
               </div>
               <div>
                 <label className="mb-1 block text-sm text-slate-700">Username</label>
@@ -320,6 +330,7 @@ export default function Hospital_Doctors() {
           </div>
         </div>
       )}
+      <Toast toast={toast} onClose={()=>setToast(null)} />
     </div>
   )
 }

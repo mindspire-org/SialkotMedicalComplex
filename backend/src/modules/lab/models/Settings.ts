@@ -18,6 +18,7 @@ const SettingsSchema = new Schema({
     default: [],
     validate: [(arr: any[]) => !arr || arr.length <= 3, 'Maximum 3 consultants allowed'],
   },
+  qrUrl: { type: String, default: '' },
 }, { timestamps: true })
 
 export type LabSettingsDoc = {
@@ -29,12 +30,13 @@ export type LabSettingsDoc = {
   reportFooter: string
   logoDataUrl?: string
   department?: string
-  reportTemplate?: 'classic'|'tealGradient'|'modern'
+  reportTemplate?: 'classic'|'tealGradient'|'modern'|'adl'|'skmch'
   slipTemplate?: 'thermal'|'a4Bill'
   consultantName?: string
   consultantDegrees?: string
   consultantTitle?: string
   consultants?: Array<{ name?: string; degrees?: string; title?: string }>
+  qrUrl?: string
 }
 
 export const LabSettings = models.Lab_Settings || model('Lab_Settings', SettingsSchema)

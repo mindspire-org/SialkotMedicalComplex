@@ -45,6 +45,7 @@ export async function create(req: Request, res: Response){
     billNo,
     customerId: (data as any).customerId || undefined,
     customer: data.customer || 'Walk-in',
+    customerPhone: String((data as any).customerPhone || '').trim() || undefined,
     payment: data.payment,
     discountPct: data.discountPct || 0,
     lineDiscountTotal: lineDiscount,
@@ -119,11 +120,12 @@ export async function create(req: Request, res: Response){
 
 export async function list(req: Request, res: Response){
   const parsed = salesQuerySchema.safeParse(req.query)
-  const { bill, customer, customerId, payment, medicine, user, from, to, page, limit } = parsed.success ? parsed.data as any : {}
+  const { bill, customer, customerId, phone, payment, medicine, user, from, to, page, limit } = parsed.success ? parsed.data as any : {}
   const filter: any = {}
   if (bill) filter.billNo = new RegExp(bill, 'i')
   if (customer) filter.customer = new RegExp(customer, 'i')
   if (customerId) filter.customerId = customerId
+  if (phone) filter.customerPhone = new RegExp(phone, 'i')
   if (payment && payment !== 'Any') filter.payment = payment
   if (medicine) filter['lines.name'] = new RegExp(medicine, 'i')
   if (user) filter.createdBy = new RegExp(user, 'i')

@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printPreviewCurrent: (options) => ipcRenderer.invoke('print:preview-current', options || {}),
   printPreviewHtml: (html, options) => ipcRenderer.invoke('print:preview-html', html, options || {}),
   printPreviewPdf: (dataUrlOrBase64) => ipcRenderer.invoke('print:preview-pdf', dataUrlOrBase64),
+  openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
 });

@@ -64,27 +64,8 @@ export async function exportAll(req: Request, res: Response){
 export async function purgeAll(_req: Request, res: Response){
   const ok = String((_req.body as any)?.confirm || '').toUpperCase() === 'PURGE'
   if (!ok) return res.status(400).json({ error: 'Confirmation required. Set body.confirm = "PURGE".' })
-  
-  // Delete all collections except user collections (preserve portal users)
-  const names = await listCollectionNames()
-  const preserved: string[] = []
-  const deleted: string[] = []
-  
-  for (const name of names) {
-    // Preserve any collection ending with _users (hospital_users, reception_users, etc.)
-    if (name.toLowerCase().endsWith('_users')) {
-      preserved.push(name)
-      continue
-    }
-    try {
-      await mongoose.connection.db!.collection(name).drop()
-      deleted.push(name)
-    } catch (e) {
-      // Ignore errors for individual collection drops
-    }
-  }
-  
-  res.json({ ok: true, preserved, deleted })
+  await mongoose.connection.db!.dropDatabase()
+  res.json({ ok: true })
 }
 
 export async function restoreAll(req: Request, res: Response){

@@ -7,8 +7,8 @@ export type HospitalDoctorInput = {
   specialization: string
   qualification: string
   phone: string
-  fee: string
-  shares: string
+  publicFee: string
+  privateFee: string
   username: string
   password: string
   primaryDepartmentId: string
@@ -26,12 +26,12 @@ export default function Hospital_AddDoctorDialog({
   departments: Array<{ id: string; name: string }>
 }) {
   const [form, setForm] = useState<HospitalDoctorInput>({
-    name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', phone: '', fee: '0', shares: '0', username: '', password: '', primaryDepartmentId: ''
+    name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', phone: '', publicFee: '0', privateFee: '0', username: '', password: '', primaryDepartmentId: ''
   })
 
   useEffect(() => {
     if (open) {
-      setForm({ name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', phone: '', fee: '0', shares: '0', username: '', password: '', primaryDepartmentId: '' })
+      setForm({ name: '', cnic: '', pmdcNo: '', specialization: '', qualification: '', phone: '', publicFee: '0', privateFee: '0', username: '', password: '', primaryDepartmentId: '' })
     }
   }, [open])
 
@@ -87,12 +87,12 @@ export default function Hospital_AddDoctorDialog({
             <input value={form.phone} onChange={e=>update('phone', e.target.value)} placeholder="Enter phone number" className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-slate-700">Consultation Fee (Rs.)</label>
-            <input value={form.fee} onChange={e=>update('fee', e.target.value)} placeholder="0" className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
+            <label className="mb-1 block text-sm text-slate-700">Public Fee (Rs.)</label>
+            <input value={form.publicFee} onChange={e=>update('publicFee', e.target.value)} placeholder="0" className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-slate-700">OPD Share</label>
-            <input value={form.shares} onChange={e=>update('shares', e.target.value)} placeholder="0" className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
+            <label className="mb-1 block text-sm text-slate-700">Private Fee (Rs.)</label>
+            <input value={form.privateFee} onChange={e=>update('privateFee', e.target.value)} placeholder="0" className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-700">Username</label>

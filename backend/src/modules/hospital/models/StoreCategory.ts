@@ -1,16 +1,21 @@
-import { Schema, model, models } from 'mongoose'
+import mongoose from 'mongoose'
 
-const StoreCategorySchema = new Schema({
-  name: { type: String, required: true, unique: true },
-  description: { type: String },
-  active: { type: Boolean, default: true },
-}, { timestamps: true })
+const StoreCategorySchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    description: { type: String, trim: true },
+    active: { type: Boolean, default: true },
+  },
+  { timestamps: true }
+)
 
-export type HospitalStoreCategoryDoc = {
-  _id: string
+StoreCategorySchema.index({ name: 1 }, { unique: true })
+
+export const StoreCategoryModel = mongoose.models.StoreCategory || mongoose.model('StoreCategory', StoreCategorySchema)
+export type DocStoreCategory = mongoose.Document & {
   name: string
   description?: string
-  active?: boolean
+  active: boolean
+  createdAt: Date
+  updatedAt: Date
 }
-
-export const HospitalStoreCategory = models.Hospital_StoreCategory || model('Hospital_StoreCategory', StoreCategorySchema)

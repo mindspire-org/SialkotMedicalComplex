@@ -8,6 +8,8 @@ export type LabSlipOrderInput = {
   subtotal: number
   discount: number
   net: number
+  receivedAmount?: number
+  receivableAmount?: number
   printedBy?: string
   fbr?: { status?: string; qrCode?: string; fbrInvoiceNo?: string; mode?: string; error?: string }
 }
@@ -37,11 +39,13 @@ export async function printLabTokenSlip(order: LabSlipOrderInput){
   const dt = new Date(nowIso)
   const dateStr = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString()
 
-  const fbrStatus = String(order?.fbr?.status || '').toUpperCase()
-  const fbrHtml = `
+  const fbrStatus = String(order?.fbr?.status || '').toUpperCase().trim()
+  const isFbrSuccess = fbrStatus === 'SUCCESS' && Boolean(order?.fbr?.qrCode)
+  const isFbrDisabled = !order?.fbr || !fbrStatus
+  const fbrHtml = isFbrDisabled ? '' : `
     <div class="section-title">FBR</div>
     <div style="text-align:center;margin-top:6px">
-      ${fbrStatus === 'SUCCESS' && order?.fbr?.qrCode ? `<img src="${esc(order.fbr.qrCode)}" alt="FBR QR" style="height:96px;width:96px;object-fit:contain"/>` : `<div style="font-weight:700;color:#e11d48">FBR FAILED</div>`}
+      ${isFbrSuccess && order?.fbr?.qrCode ? `<img src="${esc(order.fbr.qrCode)}" alt="FBR QR" style="height:96px;width:96px;object-fit:contain"/>` : `<div style="font-weight:700;color:#e11d48">FBR FAILED</div>`}
     </div>
     <div style="margin-top:6px;font-size:11px;color:#334155">
       <div>FBR No: ${esc(order?.fbr?.fbrInvoiceNo || '—')}</div>
@@ -77,6 +81,7 @@ export async function printLabTokenSlip(order: LabSlipOrderInput){
     .toolbar{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc}
     .toolbar-title{font-weight:700;color:#0f172a}
     .btn{border:1px solid #cbd5e1;border-radius:8px;padding:6px 10px;font-size:12px;color:#334155;background:#fff}
+    .slip-body{max-height:75vh;overflow-y:auto}
     .container{padding:16px 20px;font-family:'Poppins',ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a}
     .title{font-size:22px;font-weight:800;text-align:center;margin:8px 0}
     .muted{color:#64748b;font-size:12px;text-align:center}
@@ -101,6 +106,7 @@ export async function printLabTokenSlip(order: LabSlipOrderInput){
       /* Place the slip at the very top to remove any leading blank */
       #lab-slip-printable{ position:absolute !important; left:0; right:0; top:0; margin:0 auto !important; width:384px !important; box-shadow:none !important }
       .toolbar{ display:none !important }
+      .slip-body{ max-height:none !important; overflow:visible !important }
       /* Force crisp black text for all content in the slip */
       #lab-slip-printable .container, #lab-slip-printable .container * { color:#000 !important }
       #lab-slip-printable .muted { color:#000 !important }
@@ -117,7 +123,7 @@ export async function printLabTokenSlip(order: LabSlipOrderInput){
         <button class="btn" id="lab-slip-close" style="margin-left:8px">Close (Ctrl+D)</button>
       </div>
     </div>
-    <div class="container">
+    <div class="slip-body"><div class="container">
       <div style="text-align:center;margin-top:8px">
         ${logo? `<img src="${esc(logo)}" alt="logo" style="height:64px;width:auto;object-fit:contain;display:block;margin:0 auto 6px"/>` : ''}
         <div class="title">${esc(labName)}</div>
@@ -142,9 +148,11 @@ export async function printLabTokenSlip(order: LabSlipOrderInput){
       <div class="frow"><div>Total Amount:</div><div>${order.subtotal.toFixed(2)}</div></div>
       <div class="frow"><div>Discount:</div><div>${order.discount.toFixed(2)}</div></div>
       <div class="frow total"><div>Payable Amount:</div><div>${order.net.toFixed(2)}</div></div>
+      ${typeof order.receivedAmount === 'number' ? `<div class="frow"><div>Received:</div><div>${Number(order.receivedAmount||0).toFixed(2)}</div></div>` : ''}
+      ${typeof order.receivableAmount === 'number' ? `<div class="frow"><div>Receivable:</div><div>${Number(order.receivableAmount||0).toFixed(2)}</div></div>` : ''}
       <div style="margin-top:10px">${fbrHtml}</div>
       <div class="footer">${esc(footer || 'Powered by Hospital MIS')}</div>
-    </div>
+    </div></div>
   </div>`
 
   overlay.innerHTML = html

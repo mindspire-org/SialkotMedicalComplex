@@ -1,29 +1,39 @@
-import { Schema, model, models } from 'mongoose'
+import mongoose from 'mongoose'
 
-const StoreItemSchema = new Schema({
-  code: { type: String },
-  name: { type: String, required: true },
-  categoryId: { type: Schema.Types.ObjectId, ref: 'Hospital_StoreCategory' },
-  unitId: { type: Schema.Types.ObjectId, ref: 'Hospital_StoreUnit' },
-  reorderLevel: { type: Number, min: 0 },
-  minStock: { type: Number, min: 0 },
-  maxStock: { type: Number, min: 0 },
-  active: { type: Boolean, default: true },
-}, { timestamps: true })
+const StoreItemSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    category: { type: String, ref: 'StoreCategory' },
+    unit: { type: String, default: 'pcs' }, // pcs, pack, box, bottle, tube, set
+    currentStock: { type: Number, default: 0 },
+    minStock: { type: Number, default: 0 },
+    avgCost: { type: Number, default: 0 },
+    batches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'StoreBatch' }],
+    earliestExpiry: { type: Date },
+    lastPurchase: { type: Date },
+    lastSupplier: { type: String },
+    active: { type: Boolean, default: true },
+  },
+  { timestamps: true }
+)
 
-StoreItemSchema.index({ name: 1 }, { unique: true })
-StoreItemSchema.index({ code: 1 }, { unique: true, sparse: true })
+StoreItemSchema.index({ name: 1 })
+StoreItemSchema.index({ category: 1 })
+StoreItemSchema.index({ currentStock: 1 })
 
-export type HospitalStoreItemDoc = {
-  _id: string
-  code?: string
+export const StoreItemModel = mongoose.models.StoreItem || mongoose.model('StoreItem', StoreItemSchema)
+export type DocStoreItem = mongoose.Document & {
   name: string
-  categoryId?: string
-  unitId?: string
-  reorderLevel?: number
-  minStock?: number
-  maxStock?: number
-  active?: boolean
+  category?: string
+  unit: string
+  currentStock: number
+  minStock: number
+  avgCost: number
+  batches: string[]
+  earliestExpiry?: Date
+  lastPurchase?: Date
+  lastSupplier?: string
+  active: boolean
+  createdAt: Date
+  updatedAt: Date
 }
-
-export const HospitalStoreItem = models.Hospital_StoreItem || model('Hospital_StoreItem', StoreItemSchema)

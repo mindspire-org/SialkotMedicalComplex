@@ -12,12 +12,13 @@ export default function Lab_Settings() {
   const [reportFooter, setReportFooter] = useState('')
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
   const [department, setDepartment] = useState('')
-  const [reportTemplate, setReportTemplate] = useState<'classic'|'tealGradient'|'modern'>('classic')
+  const [reportTemplate, setReportTemplate] = useState<'classic'|'tealGradient'|'modern'|'adl'|'skmch'|'receiptStyle'>('classic')
   const [slipTemplate, setSlipTemplate] = useState<'thermal'|'a4Bill'>('thermal')
   const [consultantName, setConsultantName] = useState('')
   const [consultantDegrees, setConsultantDegrees] = useState('')
   const [consultantTitle, setConsultantTitle] = useState('')
   const [consultants, setConsultants] = useState<Array<{ name?: string; degrees?: string; title?: string }>>([])
+  const [qrUrl, setQrUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
 
@@ -34,12 +35,13 @@ export default function Lab_Settings() {
         setReportFooter(s.reportFooter || '')
         setLogoDataUrl(s.logoDataUrl || null)
         setDepartment(s.department || '')
-        setReportTemplate((s.reportTemplate === 'tealGradient' ? 'tealGradient' : (s.reportTemplate === 'modern' ? 'modern' : 'classic')))
+        setReportTemplate((s.reportTemplate === 'tealGradient' ? 'tealGradient' : (s.reportTemplate === 'modern' ? 'modern' : (s.reportTemplate === 'adl' ? 'adl' : (s.reportTemplate === 'skmch' ? 'skmch' : (s.reportTemplate === 'receiptStyle' ? 'receiptStyle' : 'classic'))))))
         setSlipTemplate((s.slipTemplate === 'a4Bill' ? 'a4Bill' : 'thermal'))
         setConsultantName(s.consultantName || '')
         setConsultantDegrees(s.consultantDegrees || '')
         setConsultantTitle(s.consultantTitle || '')
         setConsultants(Array.isArray(s.consultants) ? s.consultants : [])
+        setQrUrl(s.qrUrl || '')
       } catch (e) { /* ignore */ }
     })()
     return ()=>{ mounted = false }
@@ -70,6 +72,7 @@ export default function Lab_Settings() {
           degrees: (c.degrees||'').trim() || undefined,
           title: (c.title||'').trim() || undefined,
         })).filter(c => c.name || c.degrees || c.title),
+        qrUrl,
       })
       setNotice('Lab settings saved')
       try { setTimeout(()=> setNotice(''), 2500) } catch {}
@@ -133,10 +136,13 @@ export default function Lab_Settings() {
 
             <div>
               <label className="mb-1 block text-sm text-slate-700">Report Template</label>
-              <select value={reportTemplate} onChange={e=> setReportTemplate((e.target.value as 'classic'|'tealGradient'|'modern') || 'classic')} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <select value={reportTemplate} onChange={e=> setReportTemplate((e.target.value as 'classic'|'tealGradient'|'modern'|'adl'|'skmch'|'receiptStyle') || 'classic')} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                 <option value="classic">Classic</option>
                 <option value="tealGradient">Teal Gradient</option>
                 <option value="modern">Modern (International)</option>
+                <option value="adl">ADL</option>
+                <option value="skmch">SKMCH</option>
+                <option value="receiptStyle">Receipt Style</option>
               </select>
             </div>
 
@@ -211,6 +217,12 @@ export default function Lab_Settings() {
                   <span>Preview</span>
                 </div>
               )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-slate-700">QR Code URL (Report Link)</label>
+              <input value={qrUrl} onChange={e=>setQrUrl(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="https://yourwebsite.com/report/{{tokenNo}}" />
+              <p className="mt-1 text-[11px] text-slate-500">Use {"{{tokenNo}}"} as a placeholder for the actual lab number.</p>
             </div>
 
             <div className="flex items-center justify-end">

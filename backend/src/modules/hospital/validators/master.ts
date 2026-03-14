@@ -17,6 +17,8 @@ export const upsertDoctorSchema = z.object({
   departmentIds: z.array(z.string()).default([]),
   primaryDepartmentId: z.string().optional(),
   opdBaseFee: z.number().min(0).optional(),
+  opdPublicFee: z.number().min(0).optional(),
+  opdPrivateFee: z.number().min(0).optional(),
   opdFollowupFee: z.number().min(0).optional(),
   followupWindowDays: z.number().int().min(0).optional(),
   username: z.string().optional(),
@@ -26,6 +28,5 @@ export const upsertDoctorSchema = z.object({
   qualification: z.string().optional(),
   cnic: z.string().optional(),
   pmdcNo: z.string().optional(),
-  shares: z.number().min(0).optional(),
   active: z.boolean().optional(),
 })

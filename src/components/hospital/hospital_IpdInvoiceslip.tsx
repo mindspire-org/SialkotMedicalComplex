@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { hospitalApi } from '../../utils/api';
+import Toast, { type ToastState } from '../ui/Toast'
 
 // Types
 type LineItem = { sr: number; description: string; rate: number; qty: number; amount: number; _id?: string };
@@ -25,9 +26,10 @@ type Invoice = {
   currency?: string;
 };
 
-export default function InvoicePage(_props: { patientId?: string; embedded?: boolean }){
+export default function InvoicePage(props: { patientId?: string; embedded?: boolean; encounterId?: string; encounterType?: 'IPD'|'EMERGENCY'; patient?: any }){
   const { id: routeId = '' } = useParams(); // encounter id via route
-  const id = routeId; // use encounter id from route
+  const id = String(props.encounterId || routeId || '');
+  const encounterType = (props.encounterType || props.patient?.encounterType || 'IPD') as 'IPD'|'EMERGENCY'
   const readOnly = false;
   const [, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -35,31 +37,72 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
   const [patient, setPatient] = useState<{ name?: string; mrn?: string; admitDate?: string; exitDate?: string; phone?: string; address?: string }|null>(null);
   const [hSettings, setHSettings] = useState<any>(null);
   const [dischargeTime, setDischargeTime] = useState<string>('');
+  const [deposit, setDeposit] = useState<number>(0);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [toast, setToast] = useState<ToastState>(null)
 
-  // Load encounter patient + IPD billing items
-  useEffect(()=>{ if(!id) return; (async()=>{
-    try {
-      setLoading(true);
-      const e: any = await hospitalApi.getIPDAdmissionById(id).catch(()=>null as any);
-      const enc = e?.encounter;
-      if (enc) {
-        setPatient({ name: enc.patientId?.fullName, mrn: enc.patientId?.mrn, admitDate: enc.startAt, exitDate: enc.endAt, phone: enc.patientId?.phoneNormalized, address: enc.patientId?.address });
-        if (enc.endAt){
-          const dt = new Date(enc.endAt);
-          const hh = String(dt.getHours()).padStart(2,'0');
-          const mm = String(dt.getMinutes()).padStart(2,'0');
-          setDischargeTime(`${hh}:${mm}`);
+  // Load encounter patient + billing items (IPD or ER)
+  useEffect(()=>{
+    if(!id) return;
+    (async()=>{
+      try {
+        setLoading(true);
+        // Reset on encounter change to prevent stale UI from previous patient
+        setPatient(null)
+        setDeposit(0)
+        setPayments([])
+        setInv({ lineItems: [], totalAmount: 0, discount: 0, totalPayable: 0, currency: 'PKR' })
+        setDischargeTime('')
+
+        if (encounterType === 'EMERGENCY'){
+          const s: any = await hospitalApi.erBillingSummary(id).catch(()=>null as any)
+          const enc = s?.encounter
+          if (enc) {
+            setPatient({ name: enc.patientId?.fullName, mrn: enc.patientId?.mrn, admitDate: enc.startAt, exitDate: enc.endAt, phone: enc.patientId?.phoneNormalized, address: enc.patientId?.address })
+            if (enc.endAt){
+              const dt = new Date(enc.endAt)
+              const hh = String(dt.getHours()).padStart(2,'0')
+              const mm = String(dt.getMinutes()).padStart(2,'0')
+              setDischargeTime(`${hh}:${mm}`)
+            }
+          }
+
+          const ch: any = await hospitalApi.listErCharges(id).catch(()=>({ charges: [] }))
+          const items: LineItem[] = (ch.charges||[]).map((r:any, idx:number)=> ({ sr: idx+1, description: r.description||'', rate: Number(r.unitPrice||0), qty: Number(r.qty||1)||1, amount: Number(r.amount||0), _id: String(r._id||'') }))
+          const discountItem = items.find(it=> /^discount$/i.test(it.description))
+          const discount = discountItem ? Math.abs(Number(discountItem.amount||0)) : 0
+          setInv(s=> fillRows({ ...s, lineItems: items, discount }))
+
+          const payRes: any = await hospitalApi.erListPayments(id).catch(()=>({ payments: [] }))
+          setPayments(payRes?.payments || [])
+          return
         }
+
+        const e: any = await hospitalApi.getIPDAdmissionById(id).catch(()=>null as any);
+        const enc = e?.encounter;
+        if (enc) {
+          setPatient({ name: enc.patientId?.fullName, mrn: enc.patientId?.mrn, admitDate: enc.startAt, exitDate: enc.endAt, phone: enc.patientId?.phoneNormalized, address: enc.patientId?.address });
+          setDeposit(Number(enc?.deposit||0));
+          if (enc.endAt){
+            const dt = new Date(enc.endAt);
+            const hh = String(dt.getHours()).padStart(2,'0');
+            const mm = String(dt.getMinutes()).padStart(2,'0');
+            setDischargeTime(`${hh}:${mm}`);
+          }
+        }
+        const res: any = await hospitalApi.listIpdBillingItems(id).catch(()=>({ items: [] }));
+        const items: LineItem[] = (res.items||[]).map((r:any, idx:number)=> ({ sr: idx+1, description: r.description||'', rate: Number(r.unitPrice||0), qty: Number(r.qty||1)||1, amount: Number(r.amount||0), _id: String(r._id||'') }));
+        const discountItem = items.find(it=> /^discount$/i.test(it.description));
+        const discount = discountItem ? Math.abs(Number(discountItem.amount||0)) : 0;
+        setInv(s=> fillRows({ ...s, lineItems: items, discount }));
+
+        const payRes: any = await hospitalApi.listIpdPayments(id).catch(()=>({ payments: [] }));
+        setPayments(payRes?.payments || []);
+      } finally {
+        setLoading(false);
       }
-      const res: any = await hospitalApi.listIpdBillingItems(id).catch(()=>({ items: [] }));
-      const items: LineItem[] = (res.items||[]).map((r:any, idx:number)=> ({ sr: idx+1, description: r.description||'', rate: Number(r.unitPrice||0), qty: Number(r.qty||1)||1, amount: Number(r.amount||0), _id: String(r._id||'') }));
-      const discountItem = items.find(it=> /^discount$/i.test(it.description));
-      const discount = discountItem ? Math.abs(Number(discountItem.amount||0)) : 0;
-      setInv(s=> fillRows({ ...s, lineItems: items, discount }));
-    } finally {
-      setLoading(false);
-    }
-  })(); }, [id]);
+    })();
+  }, [id, encounterType]);
 
   useEffect(()=>{ (async()=>{
     try {
@@ -95,7 +138,35 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
     });
   }, [patient]);
 
-  // Recalculate days occupied when admission/discharge dates change
+  // Calculate paid status per line item based on payment allocation
+  const lineItemsWithStatus = useMemo(() => {
+    const sorted = [...(inv.lineItems || [])].sort((a, b) => {
+      const da = a._id ? new Date(a._id).getTime() : 0;
+      const db = b._id ? new Date(b._id).getTime() : 0;
+      return da - db;
+    });
+    
+    const settlements = payments.filter(p => String(p.method || '').toLowerCase() === 'advance settlement');
+    const nonAdvancePayments = payments.filter(p => !['advance', 'advance settlement'].includes(String(p.method || '').toLowerCase()));
+    
+    const settlementTotal = settlements.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const regularPaidTotal = nonAdvancePayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const depositAndRegular = Number(deposit || 0) + regularPaidTotal + settlementTotal;
+    
+    let remainingPaid = Math.max(0, depositAndRegular);
+    const alloc = sorted.map(c => {
+      const amt = Math.max(0, Number(c.amount || 0));
+      const paidHere = Math.min(amt, remainingPaid);
+      const remaining = Math.max(0, amt - paidHere);
+      remainingPaid = Math.max(0, remainingPaid - paidHere);
+      const isPaid = remaining <= 0;
+      const isPartial = paidHere > 0 && remaining > 0;
+      return { ...c, paidHere, remaining, isPaid, isPartial };
+    });
+    
+    const byId = new Map(alloc.map(a => [a._id, a]));
+    return (inv.lineItems || []).map(c => byId.get(c._id) || { ...c, paidHere: 0, remaining: Number(c.amount || 0), isPaid: false, isPartial: false });
+  }, [inv.lineItems, payments, deposit]);
   useEffect(()=>{
     const d1 = inv.dateOfAdmission ? new Date(inv.dateOfAdmission) : null;
     const d2 = inv.dateOfDischarge ? new Date(inv.dateOfDischarge) : null;
@@ -109,13 +180,26 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
   const totals = useMemo(()=>{
     const totalAmount = (inv.lineItems||[]).reduce((s, r)=> s + Number(r.amount||0), 0);
     const discount = Number(inv.discount||0);
-    const totalPayable = Math.max(0, totalAmount - discount);
-    return { totalAmount, discount, totalPayable };
-  }, [inv.lineItems, inv.discount]);
+    const net = Math.max(0, totalAmount - discount);
+    
+    const advances = payments.filter(p => String(p.method || '').toLowerCase() === 'advance');
+    const settlements = payments.filter(p => String(p.method || '').toLowerCase() === 'advance settlement');
+    const nonAdvancePayments = payments.filter(p => !['advance', 'advance settlement'].includes(String(p.method || '').toLowerCase()));
+    
+    const advanceTotalRaw = advances.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const settlementTotal = settlements.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const regularPaid = nonAdvancePayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    
+    const advanceTotal = Math.max(0, advanceTotalRaw - settlementTotal);
+    const totalPaid = Math.max(0, regularPaid + settlementTotal);
+    const balance = Math.max(0, net - totalPaid);
+    
+    return { totalAmount, discount, net, totalPaid, balance, advanceTotal, advanceUsed: settlementTotal, regularPaid };
+  }, [inv.lineItems, inv.discount, deposit, payments]);
 
   useEffect(()=>{
-    setInv(v=>({ ...v, totalAmount: totals.totalAmount, totalPayable: totals.totalPayable }));
-  }, [totals.totalAmount, totals.totalPayable]);
+    setInv(v=>({ ...v, totalAmount: totals.totalAmount, totalPayable: totals.balance }));
+  }, [totals.totalAmount, totals.balance]);
 
   function fillRows(data: Invoice): Invoice{
     const rows = [...(data.lineItems||[])];
@@ -139,6 +223,46 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
     if (!id) return;
     setSaving(true);
     try {
+      if (encounterType === 'EMERGENCY'){
+        const rows = inv.lineItems;
+        // Sync Discount as dedicated line
+        const discountRow = rows.find(r=> /^discount$/i.test(r.description));
+        const desired = Math.abs(Number(inv.discount||0));
+        if (desired > 0){
+          const amt = -desired;
+          if (discountRow && (discountRow as any)._id){
+            await hospitalApi.updateErCharge(String((discountRow as any)._id), { description: 'Discount', qty: 1, unitPrice: amt, amount: amt });
+          } else {
+            await hospitalApi.createErCharge(id, { type: 'service', description: 'Discount', qty: 1, unitPrice: amt, amount: amt });
+          }
+        } else if (discountRow && (discountRow as any)._id){
+          await hospitalApi.deleteErCharge(String((discountRow as any)._id));
+        }
+        // Upsert other rows
+        for (const r of rows){
+          if (/^discount$/i.test(r.description)) continue;
+          const qty = Number(r.qty||1)||1;
+          const unitPrice = Number(r.rate||0);
+          const amount = Number(r.amount!=null? r.amount : (unitPrice * qty));
+          if (r._id){
+            await hospitalApi.updateErCharge(String(r._id), { description: r.description, qty, unitPrice, amount });
+          } else if (r.description || amount){
+            await hospitalApi.createErCharge(id, { type: 'service', description: r.description, qty, unitPrice, amount });
+          }
+        }
+        // Reload
+        const ch: any = await hospitalApi.listErCharges(id).catch(()=>({ charges: [] }))
+        const items: LineItem[] = (ch.charges||[]).map((r:any, idx:number)=> ({ sr: idx+1, description: r.description||'', rate: Number(r.unitPrice||0), qty: Number(r.qty||1)||1, amount: Number(r.amount||0), _id: String(r._id||'') }))
+        const discountItem = items.find(it=> /^discount$/i.test(it.description))
+        const discount = discountItem ? Math.abs(Number(discountItem.amount||0)) : 0
+        setInv(s=> fillRows({ ...s, lineItems: items, discount }))
+
+        const payRes: any = await hospitalApi.erListPayments(id).catch(()=>({ payments: [] }))
+        setPayments(payRes?.payments || [])
+        setToast({ type: 'success', message: 'Saved' })
+        return
+      }
+
       // Update encounter discharge date/time if provided
       if (inv.dateOfDischarge){
         try {
@@ -182,6 +306,10 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
       const discountItem = items.find(it=> /^discount$/i.test(it.description));
       const discount = discountItem ? Math.abs(Number(discountItem.amount||0)) : 0;
       setInv(s=> fillRows({ ...s, lineItems: items, discount }));
+      setToast({ type: 'success', message: 'Saved' })
+    } catch (e: any) {
+      setToast({ type: 'error', message: e?.message || 'Save failed' })
+      throw e
     } finally {
       setSaving(false);
     }
@@ -276,7 +404,9 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
           <tfoot>
             <tr class="totals"><td colspan="3">Total Amount</td><td>${currency} ${fmtNum(totals.totalAmount)}</td></tr>
             <tr class="totals"><td colspan="3">Discount</td><td>${currency} ${fmtNum(inv.discount||0)}</td></tr>
-            <tr class="totals"><td colspan="3">Total Amount Payable</td><td>${currency} ${fmtNum(totals.totalPayable)}</td></tr>
+            <tr class="totals"><td colspan="3">Net Amount</td><td>${currency} ${fmtNum(totals.net)}</td></tr>
+            <tr class="totals"><td colspan="3">Paid</td><td>${currency} ${fmtNum(totals.totalPaid)}</td></tr>
+            <tr class="totals"><td colspan="3">Payable</td><td>${currency} ${fmtNum(totals.balance)}</td></tr>
           </tfoot>
         </table>
       </div>
@@ -306,8 +436,9 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
   }
 
   return (
-    <div className="bg-white/90 border border-sky-100/70 rounded-xl p-3 md:p-4 shadow-sm">
-      <div className="flex items-center justify-center text-center border-b border-sky-100 pb-2">
+    <div className="max-w-6xl mx-auto rounded-xl border border-sky-100 bg-white p-4 shadow-sm">
+      <Toast toast={toast} onClose={()=>setToast(null)} />
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 pb-3 border-b border-sky-100">
         {hSettings?.hospitalLogo ? (
           <img className="w-14 h-14 object-contain border border-sky-200 rounded-md mr-2" src={hSettings.hospitalLogo} onError={(e)=>{ (e.currentTarget as HTMLImageElement).style.display='none'; }} alt="Logo" />
         ) : null}
@@ -342,15 +473,49 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
                 <th className="px-2">Billing Detail</th>
                 <th className="px-2 w-28">Rate</th>
                 <th className="px-2 w-28">Amount</th>
+                <th className="px-2 w-20">Status</th>
               </tr>
             </thead>
             <tbody className="bg-white">
-              {inv.lineItems.map((r, idx)=> (
+              {lineItemsWithStatus.map((r, idx)=> (
                 <tr key={idx} className="border-t border-sky-100">
                   <td className="py-1 px-2 text-xs text-slate-600">{idx+1}</td>
-                  <td className="px-2"><input value={r.description} onChange={e=>setRow(idx,{ description: e.target.value })} disabled={readOnly} className="w-full border border-sky-200 rounded px-2 py-1 disabled:bg-slate-50" placeholder="e.g., G-Ward Charges" /></td>
-                  <td className="px-2"><input type="number" value={r.rate} onChange={e=>setRow(idx,{ rate: Number(e.target.value||0) })} disabled={readOnly} className="w-full border border-sky-200 rounded px-2 py-1 text-right disabled:bg-slate-50" /></td>
-                  <td className="px-2"><input type="number" value={r.amount} onChange={e=>setRow(idx,{ amount: Number(e.target.value||0) })} disabled={readOnly} className="w-full border border-sky-200 rounded px-2 py-1 text-right disabled:bg-slate-50" /></td>
+                  <td className="px-2">
+                    <input 
+                      value={r.description} 
+                      onChange={e=>setRow(idx,{ description: e.target.value })} 
+                      disabled={r.isPaid || r.isPartial} 
+                      className={`w-full border rounded px-2 py-1 ${r.isPaid ? 'bg-emerald-50 border-emerald-200' : r.isPartial ? 'bg-amber-50 border-amber-200' : 'border-sky-200'}`}
+                      placeholder="e.g., G-Ward Charges" 
+                    />
+                  </td>
+                  <td className="px-2">
+                    <input 
+                      type="number" 
+                      value={r.rate} 
+                      onChange={e=>setRow(idx,{ rate: Number(e.target.value||0) })} 
+                      disabled={r.isPaid || r.isPartial} 
+                      className={`w-full border rounded px-2 py-1 text-right ${r.isPaid ? 'bg-emerald-50 border-emerald-200' : r.isPartial ? 'bg-amber-50 border-amber-200' : 'border-sky-200'}`}
+                    />
+                  </td>
+                  <td className="px-2">
+                    <input 
+                      type="number" 
+                      value={r.amount} 
+                      onChange={e=>setRow(idx,{ amount: Number(e.target.value||0) })} 
+                      disabled={r.isPaid || r.isPartial} 
+                      className={`w-full border rounded px-2 py-1 text-right ${r.isPaid ? 'bg-emerald-50 border-emerald-200' : r.isPartial ? 'bg-amber-50 border-amber-200' : 'border-sky-200'}`}
+                    />
+                  </td>
+                  <td className="px-2 text-xs">
+                    {r.isPaid ? (
+                      <span className="text-emerald-600 font-medium">Paid</span>
+                    ) : r.isPartial ? (
+                      <span className="text-amber-600 font-medium">Partial</span>
+                    ) : (
+                      <span className="text-slate-500">Unpaid</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -378,7 +543,9 @@ export default function InvoicePage(_props: { patientId?: string; embedded?: boo
         <div className="space-y-2 text-sm bg-sky-50/40 border border-sky-100 rounded-lg p-2.5">
           <div className="flex items-center justify-between"><div className="font-medium">Total Amount</div><div className="font-mono">{(inv.currency||'PKR')} {totals.totalAmount.toLocaleString()}</div></div>
           <div className="flex items-center justify-between"><div>Discount</div><div className="flex items-center gap-2"><input type="number" value={inv.discount||0} onChange={e=> setInv(v=>({ ...v, discount: Number(e.target.value||0) }))} disabled={readOnly} className="w-32 border border-sky-200 rounded px-2 py-1 text-right disabled:bg-slate-50" /><span className="font-mono">{(inv.currency||'PKR')} {(inv.discount||0).toLocaleString()}</span></div></div>
-          <div className="flex items-center justify-between"><div className="font-semibold">Total Amount Payable</div><div className="font-mono font-semibold">{(inv.currency||'PKR')} {totals.totalPayable.toLocaleString()}</div></div>
+          <div className="flex items-center justify-between"><div>Net Amount</div><div className="font-mono">{(inv.currency||'PKR')} {totals.net.toLocaleString()}</div></div>
+          <div className="flex items-center justify-between"><div>Paid</div><div className="font-mono">{(inv.currency||'PKR')} {totals.totalPaid.toLocaleString()}</div></div>
+          <div className="flex items-center justify-between"><div className="font-semibold">Balance</div><div className="font-mono font-semibold">{(inv.currency||'PKR')} {totals.balance.toLocaleString()}</div></div>
         </div>
       </div>
 

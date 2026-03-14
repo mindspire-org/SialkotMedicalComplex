@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { aestheticApi, labApi } from '../../utils/api'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function todayIso(){ return new Date().toISOString().slice(0,10) }
 
@@ -34,6 +35,7 @@ export default function Aesthetic_Appointments(){
 
   const [editOpen, setEditOpen] = useState(false)
   const [editRow, setEditRow] = useState<any | null>(null)
+  const [confirmDeleteAppt, setConfirmDeleteAppt] = useState<any | null>(null)
   const [editForm, setEditForm] = useState({
     doctorId: '',
     scheduleId: '',
@@ -304,6 +306,25 @@ export default function Aesthetic_Appointments(){
     }catch(e:any){ setError(e?.message||'Failed to convert to token') }
   }
 
+  async function removeAppointment(appt: any){
+    if (!appt) return
+    if (appt.tokenId){ setError('Converted appointment cannot be deleted'); return }
+    setConfirmDeleteAppt(appt)
+  }
+  async function doConfirmDeleteAppt(){
+    const appt = confirmDeleteAppt
+    setConfirmDeleteAppt(null)
+    if (!appt) return
+    setError(null); setInfo(null)
+    try{
+      await (aestheticApi as any).deleteAppointment(String(appt._id))
+      setInfo('Appointment deleted')
+      await loadSchedules(); await loadApptTable()
+    }catch(e:any){
+      setError(e?.message || 'Failed to delete appointment')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -482,6 +503,9 @@ export default function Aesthetic_Appointments(){
                       {!appt.tokenId && (
                         <button onClick={()=>convert(String(appt._id))} className="rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs text-violet-700">Convert to Token</button>
                       )}
+                      {!appt.tokenId && (
+                        <button onClick={()=>removeAppointment(appt)} className="rounded-md border border-rose-300 bg-white px-2 py-1 text-xs text-rose-700">Delete</button>
+                      )}
                       {appt.status !== 'confirmed' && appt.status !== 'checked-in' && appt.status !== 'cancelled' && (
                         <button onClick={()=>updateStatus(String(appt._id), 'confirmed')} className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">Confirm</button>
                       )}
@@ -601,6 +625,15 @@ export default function Aesthetic_Appointments(){
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteAppt}
+        title="Confirm Delete"
+        message="Delete this appointment?"
+        confirmText="Delete"
+        onCancel={()=>setConfirmDeleteAppt(null)}
+        onConfirm={doConfirmDeleteAppt}
+      />
 
     </div>
   )

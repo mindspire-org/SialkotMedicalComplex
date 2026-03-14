@@ -1,439 +1,659 @@
 import { Request, Response } from 'express'
-import { HospitalStoreCategory } from '../models/StoreCategory'
-import { HospitalStoreUnit } from '../models/StoreUnit'
-import { HospitalStoreLocation } from '../models/StoreLocation'
-import { HospitalStoreItem } from '../models/StoreItem'
-import { HospitalStoreLot } from '../models/StoreLot'
-import { HospitalStoreTxn } from '../models/StoreTxn'
-import { createStoreCategorySchema, createStoreItemSchema, createStoreLocationSchema, createStoreUnitSchema, listStoreItemsSchema, listStoreLotsSchema, listStoreMasterSchema, listStoreTxnsSchema, receiveStoreSchema, updateStoreCategorySchema, updateStoreItemSchema, updateStoreLocationSchema, updateStoreUnitSchema, issueStoreSchema, transferStoreSchema, adjustStoreSchema, storeWorthSchema, storeLowStockSchema, storeExpiringSchema, storeLedgerSchema } from '../validators/store'
+import { StoreCategoryModel } from '../models/StoreCategory'
+import { StoreSupplierModel } from '../models/StoreSupplier'
+import { StoreItemModel } from '../models/StoreItem'
+import { StoreBatchModel } from '../models/StoreBatch'
+import { StorePurchaseModel } from '../models/StorePurchase'
+import { StoreIssueModel } from '../models/StoreIssue'
+import { StoreSupplierPaymentModel } from '../models/StoreSupplierPayment'
+import { StoreAlertModel } from '../models/StoreAlert'
+import { HospitalDepartment } from '../models/Department'
 
-function escRx(s: string){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+// Pagination helper
+const getPagination = (query: any) => {
+  const page = Math.max(1, parseInt(query.page as string) || 1)
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit as string) || 20))
+  const skip = (page - 1) * limit
+  return { page, limit, skip }
+}
 
-async function listMaster(model: any, req: Request, res: Response){
-  const q = listStoreMasterSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { q: search, active, page = 1, limit = 200 } = q.data
-  const criteria: any = {}
-  if (search){
-    const rx = new RegExp(escRx(search), 'i')
-    criteria.$or = [{ name: rx }, { description: rx }, { abbr: rx }]
+// ==================== DASHBOARD ====================
+export const storeDashboard = async (req: Request, res: Response) => {
+  try {
+    const [totalItems, lowStock, outOfStock, expiringSoon, totalValue, recentPurchases, pendingPayments, totalSuppliers, todayPurchases, todayIssues] = await Promise.all([
+      StoreItemModel.countDocuments({ active: true }),
+      StoreItemModel.countDocuments({ active: true, $expr: { $and: [{ $gt: ['$currentStock', 0] }, { $lt: ['$currentStock', '$minStock'] }] } }),
+      StoreItemModel.countDocuments({ active: true, currentStock: 0 }),
+      StoreBatchModel.countDocuments({ active: true, expiry: { $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), $gt: new Date() }, quantity: { $gt: 0 } }),
+      StoreBatchModel.aggregate([{ $match: { active: true, quantity: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: { $multiply: ['$quantity', '$purchaseCost'] } } } }]),
+      StorePurchaseModel.find().sort({ createdAt: -1 }).limit(5).lean(),
+      StoreSupplierModel.aggregate([{ $group: { _id: null, total: { $sum: '$outstanding' } } }]),
+      StoreSupplierModel.countDocuments({ status: 'Active' }),
+      StorePurchaseModel.aggregate([
+        { $match: { date: new Date().toISOString().slice(0, 10) } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]),
+      StoreIssueModel.aggregate([
+        { $match: { date: new Date().toISOString().slice(0, 10) } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]),
+    ])
+
+    res.json({
+      stats: {
+        totalItems,
+        totalSuppliers,
+        totalStockValue: totalValue[0]?.total || 0,
+        pendingPayments: pendingPayments[0]?.total || 0,
+        todayPurchases: todayPurchases[0]?.total || 0,
+        todayIssues: todayIssues[0]?.total || 0,
+      },
+      alerts: {
+        lowStock,
+        outOfStock,
+        expiringSoon,
+        expired: 0,
+      },
+      recentPurchases,
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
-  if (active != null) criteria.active = active
-  const items = await model.find(criteria).sort({ name: 1 }).skip((page-1)*limit).limit(limit).lean()
-  const total = await model.countDocuments(criteria)
-  res.json({ items, total, page, limit })
 }
 
-// Categories
-export async function listCategories(req: Request, res: Response){ return listMaster(HospitalStoreCategory, req, res) }
-export async function createCategory(req: Request, res: Response){
-  const data = createStoreCategorySchema.parse(req.body)
-  const row = await HospitalStoreCategory.create(data)
-  res.status(201).json({ category: row })
-}
-export async function updateCategory(req: Request, res: Response){
-  const patch = updateStoreCategorySchema.parse(req.body)
-  const row = await HospitalStoreCategory.findByIdAndUpdate(req.params.id, patch, { new: true })
-  if (!row) return res.status(404).json({ error: 'Category not found' })
-  res.json({ category: row })
-}
-export async function removeCategory(req: Request, res: Response){
-  await HospitalStoreCategory.findByIdAndDelete(req.params.id)
-  res.json({ ok: true })
-}
-
-// Units
-export async function listUnits(req: Request, res: Response){ return listMaster(HospitalStoreUnit, req, res) }
-export async function createUnit(req: Request, res: Response){
-  const data = createStoreUnitSchema.parse(req.body)
-  const row = await HospitalStoreUnit.create(data)
-  res.status(201).json({ unit: row })
-}
-export async function updateUnit(req: Request, res: Response){
-  const patch = updateStoreUnitSchema.parse(req.body)
-  const row = await HospitalStoreUnit.findByIdAndUpdate(req.params.id, patch, { new: true })
-  if (!row) return res.status(404).json({ error: 'Unit not found' })
-  res.json({ unit: row })
-}
-export async function removeUnit(req: Request, res: Response){
-  await HospitalStoreUnit.findByIdAndDelete(req.params.id)
-  res.json({ ok: true })
-}
-
-// Locations
-export async function listLocations(req: Request, res: Response){ return listMaster(HospitalStoreLocation, req, res) }
-export async function createLocation(req: Request, res: Response){
-  const data = createStoreLocationSchema.parse(req.body)
-  const row = await HospitalStoreLocation.create(data)
-  res.status(201).json({ location: row })
-}
-export async function updateLocation(req: Request, res: Response){
-  const patch = updateStoreLocationSchema.parse(req.body)
-  const row = await HospitalStoreLocation.findByIdAndUpdate(req.params.id, patch, { new: true })
-  if (!row) return res.status(404).json({ error: 'Location not found' })
-  res.json({ location: row })
-}
-export async function removeLocation(req: Request, res: Response){
-  await HospitalStoreLocation.findByIdAndDelete(req.params.id)
-  res.json({ ok: true })
-}
-
-// Items
-export async function listItems(req: Request, res: Response){
-  const q = listStoreItemsSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { q: search, categoryId, active, page = 1, limit = 200 } = q.data
-  const criteria: any = {}
-  if (search){
-    const rx = new RegExp(escRx(search), 'i')
-    criteria.$or = [{ name: rx }, { code: rx }]
+// ==================== CATEGORIES ====================
+export const listCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await StoreCategoryModel.find().sort({ name: 1 }).lean()
+    res.json({ categories })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
-  if (categoryId) criteria.categoryId = categoryId
-  if (active != null) criteria.active = active
-  const items = await HospitalStoreItem.find(criteria)
-    .sort({ name: 1 })
-    .skip((page-1)*limit)
-    .limit(limit)
-    .lean()
-  const total = await HospitalStoreItem.countDocuments(criteria)
-  res.json({ items, total, page, limit })
 }
 
-export async function createItem(req: Request, res: Response){
-  const data = createStoreItemSchema.parse(req.body)
-  const row = await HospitalStoreItem.create(data)
-  res.status(201).json({ item: row })
-}
-
-export async function updateItem(req: Request, res: Response){
-  const patch = updateStoreItemSchema.parse(req.body)
-  const row = await HospitalStoreItem.findByIdAndUpdate(req.params.id, patch, { new: true })
-  if (!row) return res.status(404).json({ error: 'Item not found' })
-  res.json({ item: row })
-}
-
-export async function removeItem(req: Request, res: Response){
-  await HospitalStoreItem.findByIdAndDelete(req.params.id)
-  res.json({ ok: true })
-}
-
-// Lots & stock
-export async function listLots(req: Request, res: Response){
-  const q = listStoreLotsSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { itemId, locationId, expFrom, expTo, page = 1, limit = 500 } = q.data
-  const criteria: any = {}
-  if (itemId) criteria.itemId = itemId
-  if (locationId) criteria.locationId = locationId
-  if (expFrom || expTo) criteria.expiryDate = { ...(expFrom?{ $gte: expFrom }:{}), ...(expTo?{ $lte: expTo }:{}) }
-  const lots = await HospitalStoreLot.find(criteria).sort({ expiryDate: 1, receivedAt: 1, createdAt: 1 }).skip((page-1)*limit).limit(limit).lean()
-  const total = await HospitalStoreLot.countDocuments(criteria)
-  res.json({ items: lots, total, page, limit })
-}
-
-export async function stockSummary(req: Request, res: Response){
-  const locationId = String(req.query.locationId || '')
-  const itemId = String(req.query.itemId || '')
-  const match: any = {}
-  if (locationId) match.locationId = locationId
-  if (itemId) match.itemId = itemId
-
-  const rows = await HospitalStoreLot.aggregate([
-    { $match: match },
-    { $group: { _id: { itemId: '$itemId', locationId: '$locationId' }, qtyOnHand: { $sum: '$qtyOnHand' }, worth: { $sum: { $multiply: ['$qtyOnHand', '$unitCost'] } } } },
-    { $sort: { 'worth': -1 } },
-  ])
-
-  res.json({ items: rows.map(r => ({ itemId: String(r._id.itemId), locationId: String(r._id.locationId), qtyOnHand: r.qtyOnHand || 0, worth: Number((r.worth || 0).toFixed(2)) })) })
-}
-
-// Transactions
-export async function listTxns(req: Request, res: Response){
-  const q = listStoreTxnsSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { type, itemId, locationId, from, to, page = 1, limit = 200 } = q.data
-  const criteria: any = {}
-  if (type) criteria.type = type
-  if (from || to) criteria.date = { ...(from?{ $gte: from }:{}), ...(to?{ $lte: to }:{}) }
-  if (locationId) criteria.$or = [{ fromLocationId: locationId }, { toLocationId: locationId }]
-  if (itemId) criteria['lines.itemId'] = itemId
-  const rows = await HospitalStoreTxn.find(criteria).sort({ date: -1, createdAt: -1 }).skip((page-1)*limit).limit(limit).lean()
-  const total = await HospitalStoreTxn.countDocuments(criteria)
-  res.json({ items: rows, total, page, limit })
-}
-
-async function fifoConsume(opts: { itemId: string; locationId: string; qty: number }){
-  let remaining = opts.qty
-  const consumed: Array<{ lotId: string; qty: number; unitCost: number; lotNo: string; expiryDate: string }> = []
-
-  const lots = await HospitalStoreLot.find({ itemId: opts.itemId, locationId: opts.locationId, qtyOnHand: { $gt: 0 } })
-    .sort({ receivedAt: 1, createdAt: 1 })
-
-  for (const lot of lots){
-    if (remaining <= 0) break
-    const take = Math.min(remaining, lot.qtyOnHand)
-    lot.qtyOnHand = lot.qtyOnHand - take
-    await lot.save()
-    consumed.push({ lotId: String(lot._id), qty: take, unitCost: lot.unitCost, lotNo: lot.lotNo, expiryDate: lot.expiryDate })
-    remaining -= take
+export const createCategory = async (req: Request, res: Response) => {
+  try {
+    const { name, description, active } = req.body
+    const cat = await StoreCategoryModel.create({ name, description, active: active ?? true })
+    res.status(201).json({ category: cat })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
   }
-
-  if (remaining > 0){
-    throw new Error('Insufficient stock for FIFO issue')
-  }
-
-  return consumed
 }
 
-export async function receive(req: Request, res: Response){
-  const data = receiveStoreSchema.parse(req.body)
-
-  const linesOut: any[] = []
-  for (const l of data.lines){
-    const lot = await HospitalStoreLot.findOneAndUpdate(
-      { itemId: l.itemId, locationId: data.locationId, lotNo: l.lotNo, expiryDate: l.expiryDate },
-      { $setOnInsert: { itemId: l.itemId, locationId: data.locationId, vendorId: data.vendorId, receivedAt: data.date, lotNo: l.lotNo, expiryDate: l.expiryDate, unitCost: l.unitCost, qtyOnHand: 0 }, $set: { unitCost: l.unitCost }, $inc: { qtyOnHand: l.qty } },
-      { upsert: true, new: true }
-    )
-    linesOut.push({ itemId: l.itemId, lotId: String(lot?._id), qty: l.qty, unitCost: l.unitCost, lotNo: l.lotNo, expiryDate: l.expiryDate })
+export const updateCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { name, description, active } = req.body
+    const cat = await StoreCategoryModel.findByIdAndUpdate(id, { name, description, active }, { new: true })
+    if (!cat) return res.status(404).json({ error: 'Category not found' })
+    res.json({ category: cat })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
   }
-
-  const txn = await HospitalStoreTxn.create({
-    type: 'RECEIVE',
-    date: data.date,
-    referenceNo: data.referenceNo,
-    notes: data.notes,
-    toLocationId: data.locationId,
-    lines: linesOut,
-  })
-
-  res.status(201).json({ txn })
 }
 
-export async function issue(req: Request, res: Response){
-  const data = issueStoreSchema.parse(req.body)
+export const deleteCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const cat = await StoreCategoryModel.findByIdAndDelete(id)
+    if (!cat) return res.status(404).json({ error: 'Category not found' })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
 
-  const allLines: any[] = []
-  for (const l of data.lines){
-    const consumed = await fifoConsume({ itemId: l.itemId, locationId: data.locationId, qty: l.qty })
-    for (const c of consumed){
-      allLines.push({ itemId: l.itemId, lotId: c.lotId, qty: c.qty, unitCost: c.unitCost, lotNo: c.lotNo, expiryDate: c.expiryDate })
+// ==================== SUPPLIERS ====================
+export const listSuppliers = async (req: Request, res: Response) => {
+  try {
+    const { status, search } = req.query
+    const { page, limit, skip } = getPagination(req.query)
+
+    const filter: any = {}
+    if (status) filter.status = status
+    if (search) {
+      const s = new RegExp(search as string, 'i')
+      filter.$or = [{ name: s }, { company: s }, { phone: s }]
     }
+
+    const [suppliers, total] = await Promise.all([
+      StoreSupplierModel.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+      StoreSupplierModel.countDocuments(filter),
+    ])
+
+    res.json({ suppliers, pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
-
-  const txn = await HospitalStoreTxn.create({
-    type: 'ISSUE',
-    date: data.date,
-    referenceNo: data.referenceNo,
-    notes: data.notes,
-    fromLocationId: data.locationId,
-    departmentId: data.departmentId,
-    encounterId: data.encounterId,
-    lines: allLines,
-  })
-
-  res.status(201).json({ txn })
 }
 
-export async function transfer(req: Request, res: Response){
-  const data = transferStoreSchema.parse(req.body)
-  if (data.fromLocationId === data.toLocationId) return res.status(400).json({ error: 'fromLocationId and toLocationId must be different' })
+export const createSupplier = async (req: Request, res: Response) => {
+  try {
+    const { name, company, phone, address, taxId, status } = req.body
+    const sup = await StoreSupplierModel.create({ name, company, phone, address, taxId, status: status || 'Active' })
+    res.status(201).json({ supplier: sup })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
 
-  const allLines: any[] = []
-  for (const l of data.lines){
-    const consumed = await fifoConsume({ itemId: l.itemId, locationId: data.fromLocationId, qty: l.qty })
-    for (const c of consumed){
-      const lot = await HospitalStoreLot.findOneAndUpdate(
-        { itemId: l.itemId, locationId: data.toLocationId, lotNo: c.lotNo, expiryDate: c.expiryDate },
-        { $setOnInsert: { itemId: l.itemId, locationId: data.toLocationId, receivedAt: data.date, lotNo: c.lotNo, expiryDate: c.expiryDate, unitCost: c.unitCost, qtyOnHand: 0 }, $set: { unitCost: c.unitCost }, $inc: { qtyOnHand: c.qty } },
-        { upsert: true, new: true }
-      )
-      allLines.push({ itemId: l.itemId, lotId: String(lot?._id), qty: c.qty, unitCost: c.unitCost, lotNo: c.lotNo, expiryDate: c.expiryDate })
+export const updateSupplier = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { name, company, phone, address, taxId, status } = req.body
+    const sup = await StoreSupplierModel.findByIdAndUpdate(id, { name, company, phone, address, taxId, status }, { new: true })
+    if (!sup) return res.status(404).json({ error: 'Supplier not found' })
+    res.json({ supplier: sup })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+export const deleteSupplier = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const sup = await StoreSupplierModel.findByIdAndDelete(id)
+    if (!sup) return res.status(404).json({ error: 'Supplier not found' })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export const getSupplierLedger = async (req: Request, res: Response) => {
+  try {
+    const { supplierId } = req.params
+    const { from, to } = req.query
+
+    const supplier = await StoreSupplierModel.findById(supplierId).lean()
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' })
+
+    const dateFilter: any = {}
+    if (from) dateFilter.$gte = new Date(from as string)
+    if (to) dateFilter.$lte = new Date(to as string)
+
+    const purchases = await StorePurchaseModel.find({ supplierId, ...(Object.keys(dateFilter).length && { date: dateFilter }) }).sort({ date: 1 }).lean()
+    const payments = await StoreSupplierPaymentModel.find({ supplierId, ...(Object.keys(dateFilter).length && { date: dateFilter }) }).sort({ date: 1 }).lean()
+
+    const entries: any[] = []
+    let balance = 0
+
+    for (const p of purchases) {
+      balance += p.totalAmount
+      entries.push({
+        id: String(p._id),
+        date: p.date.toISOString().slice(0, 10),
+        type: 'purchase',
+        reference: p.invoiceNo,
+        debit: p.totalAmount,
+        credit: 0,
+        balance,
+      })
     }
-  }
 
-  const txn = await HospitalStoreTxn.create({
-    type: 'TRANSFER',
-    date: data.date,
-    referenceNo: data.referenceNo,
-    notes: data.notes,
-    fromLocationId: data.fromLocationId,
-    toLocationId: data.toLocationId,
-    lines: allLines,
-  })
-
-  res.status(201).json({ txn })
-}
-
-export async function adjust(req: Request, res: Response){
-  const data = adjustStoreSchema.parse(req.body)
-
-  const linesOut: any[] = []
-  for (const l of data.lines){
-    if (l.qty === 0) continue
-
-    // For adjustments we require explicit lotNo/expiryDate (batch tracking mandatory)
-    if (l.qty > 0){
-      const lot = await HospitalStoreLot.findOneAndUpdate(
-        { itemId: l.itemId, locationId: data.locationId, lotNo: l.lotNo, expiryDate: l.expiryDate },
-        { $setOnInsert: { itemId: l.itemId, locationId: data.locationId, receivedAt: data.date, lotNo: l.lotNo, expiryDate: l.expiryDate, unitCost: l.unitCost || 0, qtyOnHand: 0 }, $set: { ...(l.unitCost!=null?{ unitCost: l.unitCost }:{}), receivedAt: data.date }, $inc: { qtyOnHand: l.qty } },
-        { upsert: true, new: true }
-      )
-      linesOut.push({ itemId: l.itemId, lotId: String(lot?._id), qty: l.qty, unitCost: lot?.unitCost, lotNo: l.lotNo, expiryDate: l.expiryDate })
-    } else {
-      const lot = await HospitalStoreLot.findOne({ itemId: l.itemId, locationId: data.locationId, lotNo: l.lotNo, expiryDate: l.expiryDate })
-      if (!lot) return res.status(400).json({ error: 'Lot not found for negative adjustment' })
-      if (lot.qtyOnHand + l.qty < 0) return res.status(400).json({ error: 'Insufficient stock for negative adjustment' })
-      lot.qtyOnHand = lot.qtyOnHand + l.qty
-      await lot.save()
-      linesOut.push({ itemId: l.itemId, lotId: String(lot._id), qty: l.qty, unitCost: lot.unitCost, lotNo: lot.lotNo, expiryDate: lot.expiryDate })
+    for (const pay of payments) {
+      balance -= pay.amount
+      entries.push({
+        id: String(pay._id),
+        date: pay.date.toISOString().slice(0, 10),
+        type: 'payment',
+        reference: pay.reference,
+        description: pay.notes,
+        debit: 0,
+        credit: pay.amount,
+        balance,
+      })
     }
+
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+    res.json({ supplier, entries })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
-
-  const txn = await HospitalStoreTxn.create({
-    type: 'ADJUSTMENT',
-    date: data.date,
-    referenceNo: data.referenceNo,
-    notes: data.notes,
-    toLocationId: data.locationId,
-    lines: linesOut,
-  })
-
-  res.status(201).json({ txn })
 }
 
-// Reports
-export async function inventoryWorth(req: Request, res: Response){
-  const q = storeWorthSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { locationId, asOf } = q.data
+export const createSupplierPayment = async (req: Request, res: Response) => {
+  try {
+    const { supplierId, amount, method, reference, date, notes } = req.body
+    const sup = await StoreSupplierModel.findById(supplierId)
+    if (!sup) return res.status(404).json({ error: 'Supplier not found' })
 
-  const criteria: any = {}
-  if (locationId) criteria.locationId = locationId
-  if (asOf) criteria.receivedAt = { $lte: asOf }
+    const payment = await StoreSupplierPaymentModel.create({
+      supplierId,
+      supplierName: sup.name,
+      amount,
+      method,
+      reference,
+      date: date ? new Date(date) : new Date(),
+      notes,
+      createdBy: (req as any).user?.id,
+    })
 
-  const rows = await HospitalStoreLot.aggregate([
-    { $match: criteria },
-    { $group: { _id: { itemId: '$itemId', locationId: '$locationId' }, qtyOnHand: { $sum: '$qtyOnHand' }, worth: { $sum: { $multiply: ['$qtyOnHand', '$unitCost'] } } } },
-    { $sort: { worth: -1 } },
-  ])
+    sup.paid = (sup.paid || 0) + amount
+    sup.outstanding = Math.max(0, (sup.outstanding || 0) - amount)
+    await sup.save()
 
-  const totalWorth = rows.reduce((s, r) => s + (r.worth || 0), 0)
-  res.json({
-    items: rows.map(r => ({ itemId: String(r._id.itemId), locationId: String(r._id.locationId), qtyOnHand: r.qtyOnHand || 0, worth: Number((r.worth || 0).toFixed(2)) })),
-    totalWorth: Number(totalWorth.toFixed(2)),
-  })
-}
-
-export async function lowStock(req: Request, res: Response){
-  const q = storeLowStockSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { q: search, onlyLow, page = 1, limit = 200 } = q.data
-
-  const itemCriteria: any = {}
-  if (search){
-    const rx = new RegExp(escRx(search), 'i')
-    itemCriteria.$or = [{ name: rx }, { code: rx }]
+    res.status(201).json({ payment })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
   }
-
-  const items = await HospitalStoreItem.find(itemCriteria).sort({ name: 1 }).skip((page-1)*limit).limit(limit).lean()
-  const itemIds = items.map(i => i._id)
-
-  const stock = await HospitalStoreLot.aggregate([
-    { $match: { itemId: { $in: itemIds } } },
-    { $group: { _id: '$itemId', qtyOnHand: { $sum: '$qtyOnHand' } } },
-  ])
-  const stockMap = new Map<string, number>(stock.map(s => [String(s._id), s.qtyOnHand || 0]))
-
-  let rows = items.map(it => {
-    const qty = stockMap.get(String(it._id)) || 0
-    const reorderLevel = (it.reorderLevel != null) ? it.reorderLevel : it.minStock
-    const isLow = (reorderLevel != null) ? qty <= reorderLevel : false
-    return { item: it, qtyOnHand: qty, reorderLevel, isLow }
-  })
-
-  if (onlyLow) rows = rows.filter(r => r.isLow)
-
-  res.json({ items: rows })
 }
 
-export async function expiring(req: Request, res: Response){
-  const q = storeExpiringSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { locationId, from, to, page = 1, limit = 200 } = q.data
+// ==================== INVENTORY ====================
+export const listInventory = async (req: Request, res: Response) => {
+  try {
+    const { category, status, search } = req.query
+    const { page, limit, skip } = getPagination(req.query)
 
-  const criteria: any = { qtyOnHand: { $gt: 0 }, expiryDate: { ...(from?{ $gte: from }:{}), $lte: to } }
-  if (locationId) criteria.locationId = locationId
+    const filter: any = { active: true }
+    if (category) filter.category = category
+    if (status === 'low') filter.$expr = { $lte: ['$currentStock', '$minStock'] }
+    if (status === 'out') filter.currentStock = 0
+    if (search) {
+      filter.name = new RegExp(search as string, 'i')
+    }
 
-  const lots = await HospitalStoreLot.find(criteria)
-    .sort({ expiryDate: 1, receivedAt: 1 })
-    .skip((page-1)*limit)
-    .limit(limit)
-    .lean()
-  const total = await HospitalStoreLot.countDocuments(criteria)
+    const [items, total] = await Promise.all([
+      StoreItemModel.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+      StoreItemModel.countDocuments(filter),
+    ])
 
-  res.json({ items: lots, total, page, limit })
+    res.json({ items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
 }
 
-export async function ledger(req: Request, res: Response){
-  const q = storeLedgerSchema.safeParse(req.query)
-  if (!q.success) return res.status(400).json({ error: 'Invalid query' })
-  const { itemId, locationId, from, to, page = 1, limit = 200 } = q.data
+export const createItem = async (req: Request, res: Response) => {
+  try {
+    const { name, category, unit, minStock } = req.body
+    const item = await StoreItemModel.create({ name, category, unit, minStock: minStock || 0 })
+    res.status(201).json({ item })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
 
-  const criteria: any = {}
-  if (from || to) criteria.date = { ...(from?{ $gte: from }:{}), ...(to?{ $lte: to }:{}) }
-  if (itemId) criteria['lines.itemId'] = itemId
-  if (locationId) criteria.$or = [{ fromLocationId: locationId }, { toLocationId: locationId }]
+export const updateItem = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { name, category, unit, minStock } = req.body
+    const item = await StoreItemModel.findByIdAndUpdate(id, { name, category, unit, minStock }, { new: true })
+    if (!item) return res.status(404).json({ error: 'Item not found' })
+    res.json({ item })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
 
-  const txns = await HospitalStoreTxn.find(criteria).sort({ date: 1, createdAt: 1 }).skip((page-1)*limit).limit(limit).lean()
+export const listBatches = async (req: Request, res: Response) => {
+  try {
+    const { itemId } = req.params
+    const batches = await StoreBatchModel.find({ itemId, active: true, quantity: { $gt: 0 } }).sort({ expiry: 1 }).lean()
+    res.json({ batches })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
 
-  // Flatten with running balance per item/location requested
-  const balanceByKey = new Map<string, number>()
-  const rows: any[] = []
+// ==================== PURCHASES ====================
+export const listPurchases = async (req: Request, res: Response) => {
+  try {
+    const { from, to, supplierId, search } = req.query
+    const { page, limit, skip } = getPagination(req.query)
 
-  for (const t of txns){
-    for (const l of (t.lines || [])){
-      const loc = (t.type === 'RECEIVE' || t.type === 'ADJUSTMENT') ? t.toLocationId : (t.type === 'ISSUE' ? t.fromLocationId : undefined)
-      const fromLoc = t.fromLocationId
-      const toLoc = t.toLocationId
+    const filter: any = {}
+    if (from || to) {
+      filter.date = {}
+      if (from) filter.date.$gte = new Date(from as string)
+      if (to) filter.date.$lte = new Date(to as string)
+    }
+    if (supplierId) filter.supplierId = supplierId
+    if (search) {
+      filter.$or = [
+        { invoiceNo: new RegExp(search as string, 'i') },
+        { supplierName: new RegExp(search as string, 'i') },
+      ]
+    }
 
-      // Determine sign based on txn type and requested location
-      const applyForLocs: Array<{ locationId: any; delta: number }> = []
+    const [purchases, total] = await Promise.all([
+      StorePurchaseModel.find(filter).sort({ date: -1 }).skip(skip).limit(limit).lean(),
+      StorePurchaseModel.countDocuments(filter),
+    ])
 
-      if (t.type === 'RECEIVE') applyForLocs.push({ locationId: toLoc, delta: l.qty })
-      if (t.type === 'ISSUE') applyForLocs.push({ locationId: fromLoc, delta: -l.qty })
-      if (t.type === 'TRANSFER'){
-        applyForLocs.push({ locationId: fromLoc, delta: -l.qty })
-        applyForLocs.push({ locationId: toLoc, delta: l.qty })
-      }
-      if (t.type === 'ADJUSTMENT') applyForLocs.push({ locationId: toLoc, delta: l.qty })
+    res.json({ purchases, pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
 
-      for (const a of applyForLocs){
-        if (locationId && String(a.locationId || '') !== String(locationId)) continue
-        const key = `${String(l.itemId)}::${String(a.locationId || '')}`
-        const prev = balanceByKey.get(key) || 0
-        const next = prev + (a.delta || 0)
-        balanceByKey.set(key, next)
-        rows.push({
-          date: t.date,
-          type: t.type,
-          txnId: String(t._id),
-          itemId: String(l.itemId),
-          locationId: String(a.locationId || ''),
-          lotId: l.lotId ? String(l.lotId) : undefined,
-          lotNo: l.lotNo,
-          expiryDate: l.expiryDate,
-          qty: a.delta,
-          unitCost: l.unitCost,
-          balance: next,
-          referenceNo: t.referenceNo,
-          notes: t.notes,
-          departmentId: t.departmentId,
-          encounterId: t.encounterId,
+export const createPurchase = async (req: Request, res: Response) => {
+  try {
+    const { date, invoiceNo, supplierId, supplierName, paymentMode, notes, items, totalAmount } = req.body
+
+    const purchase = await StorePurchaseModel.create({
+      date: new Date(date),
+      invoiceNo,
+      supplierId,
+      supplierName,
+      paymentMode,
+      paymentStatus: paymentMode === 'cash' ? 'paid' : 'unpaid',
+      totalAmount,
+      notes,
+      items: items.map((it: any) => ({
+        itemName: it.itemName,
+        category: it.category,
+        batchNo: it.batchNo,
+        quantity: it.quantity,
+        unit: it.unit,
+        purchaseCost: it.purchaseCost,
+        mrp: it.mrp,
+        expiry: it.expiry ? new Date(it.expiry) : undefined,
+      })),
+      createdBy: (req as any).user?.id,
+    })
+
+    // Update supplier totals
+    await StoreSupplierModel.findByIdAndUpdate(supplierId, {
+      $inc: { totalPurchases: totalAmount, outstanding: paymentMode === 'credit' ? totalAmount : 0 },
+      lastOrder: new Date(),
+    })
+
+    // Create items and batches
+    for (const it of items) {
+      let item = await StoreItemModel.findOne({ name: it.itemName })
+      if (!item) {
+        item = await StoreItemModel.create({
+          name: it.itemName,
+          category: it.category,
+          unit: it.unit,
+          minStock: 0,
         })
       }
-    }
-  }
 
-  res.json({ items: rows })
+      const batch = await StoreBatchModel.create({
+        itemId: item._id,
+        batchNo: it.batchNo || `B${Date.now()}`,
+        quantity: it.quantity,
+        purchaseCost: it.purchaseCost,
+        mrp: it.mrp,
+        expiry: it.expiry ? new Date(it.expiry) : undefined,
+        purchaseId: purchase._id,
+        purchaseDate: new Date(date),
+        supplierId,
+        supplierName,
+      })
+
+      await StoreItemModel.findByIdAndUpdate(item._id, {
+        $inc: { currentStock: it.quantity },
+        $push: { batches: batch._id },
+        lastPurchase: new Date(date),
+        lastSupplier: supplierName,
+        $set: { earliestExpiry: it.expiry ? new Date(it.expiry) : undefined },
+      })
+    }
+
+    res.status(201).json({ purchase })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+export const getPurchase = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const purchase = await StorePurchaseModel.findById(id).lean()
+    if (!purchase) return res.status(404).json({ error: 'Purchase not found' })
+    res.json({ purchase })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ==================== ISSUES ====================
+export const listIssues = async (req: Request, res: Response) => {
+  try {
+    const { from, to, departmentId, search } = req.query
+    const { page, limit, skip } = getPagination(req.query)
+
+    const filter: any = {}
+    if (from || to) {
+      filter.date = {}
+      if (from) filter.date.$gte = new Date(from as string)
+      if (to) filter.date.$lte = new Date(to as string)
+    }
+    if (departmentId) filter.departmentId = departmentId
+    if (search) {
+      filter.$or = [
+        { departmentName: new RegExp(search as string, 'i') },
+        { issuedTo: new RegExp(search as string, 'i') },
+      ]
+    }
+
+    const [issues, total] = await Promise.all([
+      StoreIssueModel.find(filter).sort({ date: -1 }).skip(skip).limit(limit).lean(),
+      StoreIssueModel.countDocuments(filter),
+    ])
+
+    res.json({ issues, pagination: { page, limit, total, pages: Math.ceil(total / limit) } })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export const createIssue = async (req: Request, res: Response) => {
+  try {
+    const { date, departmentId, departmentName, issuedTo, notes, items, totalAmount } = req.body
+
+    const issue = await StoreIssueModel.create({
+      date: new Date(date),
+      departmentId,
+      departmentName,
+      issuedTo,
+      notes,
+      items: items.map((it: any) => ({
+        itemId: it.itemId,
+        itemName: it.itemName,
+        batchId: it.batchId,
+        batchNo: it.batchNo,
+        quantity: it.quantity,
+        unit: it.unit,
+        costPerUnit: it.costPerUnit,
+      })),
+      totalAmount,
+      createdBy: (req as any).user?.id,
+    })
+
+    // Reduce batch quantities
+    for (const it of items) {
+      await StoreBatchModel.findByIdAndUpdate(it.batchId, { $inc: { quantity: -it.quantity } })
+      await StoreItemModel.findByIdAndUpdate(it.itemId, { $inc: { currentStock: -it.quantity } })
+    }
+
+    res.status(201).json({ issue })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+export const getIssue = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const issue = await StoreIssueModel.findById(id).lean()
+    if (!issue) return res.status(404).json({ error: 'Issue not found' })
+    res.json({ issue })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ==================== ALERTS ====================
+export const listAlerts = async (req: Request, res: Response) => {
+  try {
+    const { type, status } = req.query
+    const filter: any = {}
+    if (type) filter.type = type
+    if (status) filter.status = status
+
+    const alerts = await StoreAlertModel.find(filter).sort({ createdAt: -1 }).lean()
+    res.json({ alerts })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export const acknowledgeAlert = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const alert = await StoreAlertModel.findByIdAndUpdate(id, {
+      status: 'acknowledged',
+      acknowledgedBy: (req as any).user?.id,
+      acknowledgedAt: new Date(),
+    }, { new: true })
+    if (!alert) return res.status(404).json({ error: 'Alert not found' })
+    res.json({ alert })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export const resolveAlert = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const alert = await StoreAlertModel.findByIdAndUpdate(id, {
+      status: 'resolved',
+      resolvedBy: (req as any).user?.id,
+      resolvedAt: new Date(),
+    }, { new: true })
+    if (!alert) return res.status(404).json({ error: 'Alert not found' })
+    res.json({ alert })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ==================== REPORTS ====================
+export const getReport = async (req: Request, res: Response) => {
+  try {
+    const { reportType } = req.params
+    const { from, to, departmentId, supplierId } = req.query
+
+    let data: any[] = []
+
+    switch (reportType) {
+      case 'stock': {
+        const items = await StoreItemModel.find({ active: true }).lean()
+        data = await Promise.all(items.map(async (item) => {
+          const batches = await StoreBatchModel.find({ itemId: item._id, quantity: { $gt: 0 } }).lean()
+          const value = batches.reduce((sum, b) => sum + b.quantity * b.purchaseCost, 0)
+          return {
+            name: item.name,
+            category: item.category || '',
+            stock: item.currentStock,
+            minStock: item.minStock,
+            value,
+            status: item.currentStock === 0 ? 'out' : item.currentStock <= item.minStock ? 'low' : 'ok',
+          }
+        }))
+        break
+      }
+      case 'department-usage': {
+        const match: any = {}
+        if (from || to) {
+          match.date = {}
+          if (from) match.date.$gte = new Date(from as string)
+          if (to) match.date.$lte = new Date(to as string)
+        }
+        if (departmentId) match.departmentId = departmentId
+
+        const agg = await StoreIssueModel.aggregate([
+          { $match: match },
+          { $group: { _id: '$departmentId', departmentName: { $first: '$departmentName' }, items: { $sum: { $size: '$items' } }, value: { $sum: '$totalAmount' }, lastIssue: { $max: '$date' } } },
+          { $sort: { value: -1 } },
+        ])
+        data = agg.map(a => ({
+          department: a.departmentName,
+          items: a.items,
+          value: a.value,
+          lastIssue: a.lastIssue?.toISOString()?.slice(0, 10) || '',
+        }))
+        break
+      }
+      case 'expiry': {
+        const batches = await StoreBatchModel.find({ active: true, quantity: { $gt: 0 }, expiry: { $exists: true } }).sort({ expiry: 1 }).lean()
+        const now = new Date()
+        data = batches.map(b => {
+          const daysLeft = Math.ceil((new Date(b.expiry!).getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+          return {
+            name: b.itemName || '',
+            batch: b.batchNo,
+            expiry: b.expiry?.toISOString()?.slice(0, 10) || '',
+            quantity: b.quantity,
+            status: daysLeft < 0 ? 'expired' : daysLeft <= 30 ? 'expiring_soon' : 'ok',
+            daysLeft,
+          }
+        })
+        break
+      }
+      case 'consumption': {
+        const match: any = {}
+        if (from || to) {
+          match.date = {}
+          if (from) match.date.$gte = new Date(from as string)
+          if (to) match.date.$lte = new Date(to as string)
+        }
+        const agg = await StoreIssueModel.aggregate([
+          { $match: match },
+          { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$date' } }, items: { $sum: { $size: '$items' } }, value: { $sum: '$totalAmount' } } },
+          { $sort: { _id: 1 } },
+        ])
+        data = agg.map(a => ({ month: a._id, items: a.items, value: a.value, topItem: '' }))
+        break
+      }
+      case 'supplier-purchases': {
+        const match: any = {}
+        if (supplierId) match.supplierId = supplierId
+        if (from || to) {
+          match.date = {}
+          if (from) match.date.$gte = new Date(from as string)
+          if (to) match.date.$lte = new Date(to as string)
+        }
+        const agg = await StorePurchaseModel.aggregate([
+          { $match: match },
+          { $group: { _id: '$supplierId', supplierName: { $first: '$supplierName' }, purchases: { $sum: 1 }, totalValue: { $sum: '$totalAmount' } } },
+          { $sort: { totalValue: -1 } },
+        ])
+        const suppliers = await StoreSupplierModel.find().lean()
+        data = agg.map(a => {
+          const sup = suppliers.find(s => String(s._id) === String(a._id))
+          return {
+            supplier: a.supplierName,
+            purchases: a.purchases,
+            totalValue: a.totalValue,
+            paid: sup?.paid || 0,
+            outstanding: sup?.outstanding || 0,
+          }
+        })
+        break
+      }
+      default:
+        break
+    }
+
+    res.json({ data })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ==================== DEPARTMENTS (for issue form) ====================
+export const listDepartments = async (req: Request, res: Response) => {
+  try {
+    const departments = await HospitalDepartment.find({ active: { $ne: false } }).sort({ name: 1 }).lean()
+    res.json({ departments })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
 }

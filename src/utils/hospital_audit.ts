@@ -2,6 +2,7 @@ export type AuditAction =
   | 'login'
   | 'logout'
   | 'token_generate'
+  | 'token_edit'
   | 'token_return'
   | 'token_delete'
   | 'department_add'

@@ -14,6 +14,7 @@ const DispenseSchema = new Schema({
   billNo: { type: String, required: true, index: true },
   customerId: { type: String },
   customer: { type: String, default: 'Walk-in' },
+  customerPhone: { type: String },
   payment: { type: String, enum: ['Cash','Card','Credit'], default: 'Cash' },
   discountPct: { type: Number, default: 0 },
   lineDiscountTotal: { type: Number, default: 0 },
@@ -35,6 +36,7 @@ export type DispenseDoc = {
   billNo: string
   customerId?: string
   customer?: string
+  customerPhone?: string
   payment: 'Cash'|'Card'|'Credit'
   discountPct?: number
   lineDiscountTotal?: number

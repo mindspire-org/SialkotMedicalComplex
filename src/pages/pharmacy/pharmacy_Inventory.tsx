@@ -287,19 +287,19 @@ export default function Pharmacy_Inventory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-slate-800">
+      <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5"><path d="M5 6.75A2.75 2.75 0 0 1 7.75 4h8.5A2.75 2.75 0 0 1 19 6.75V9h-1.5V6.75c0-.69-.56-1.25-1.25-1.25h-8.5c-.69 0-1.25.56-1.25 1.25V9H5V6.75Z"/><path d="M4.25 9.75A2.75 2.75 0 0 1 7 7h10a2.75 2.75 0 0 1 2.75 2.75v7.5A2.75 2.75 0 0 1 17 20H7a2.75 2.75 0 0 1-2.75-2.75v-7.5Z"/></svg>
         <h2 className="text-xl font-bold">Inventory</h2>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
         <div className="mb-3 flex flex-wrap items-center gap-3">
-          <div className="text-2xl font-extrabold text-slate-900">Inventory Control</div>
+          <div className="text-2xl font-extrabold text-slate-900 dark:text-white">Inventory Control</div>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setUpdateStockOpen(true)} className="btn"><RotateCw className="h-4 w-4" /> Update Stock</button>
             <button onClick={() => navigate('/pharmacy/inventory/add-invoice')} className="btn"><CalendarDays className="h-4 w-4" /> Add Invoice</button>
-            <button onClick={()=>setRefreshTick(t=>t+1)} className="btn-outline-navy"><RotateCw className="h-4 w-4" /> Refresh</button>
-            <button onClick={handleExport} className="btn-outline-navy"><FileDown className="h-4 w-4" /> Export</button>
+            <button onClick={()=>setRefreshTick(t=>t+1)} className="btn-outline-navy dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><RotateCw className="h-4 w-4" /> Refresh</button>
+            <button onClick={handleExport} className="btn-outline-navy dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><FileDown className="h-4 w-4" /> Export</button>
           </div>
         </div>
 
@@ -352,10 +352,10 @@ export default function Pharmacy_Inventory() {
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="flex-1 min-w-[240px]">
-            <input id="pharmacy-inventory-search" value={search} onChange={e=>{ setSearch(e.target.value); setPage(1) }} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Search medicines or scan barcode..." />
+            <input id="pharmacy-inventory-search" value={search} onChange={e=>{ setSearch(e.target.value); setPage(1) }} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Search medicines or scan barcode..." />
           </div>
-          <button onClick={handlePrint} className="btn-outline-navy">Print</button>
-          <button className="btn-outline-navy">Filter</button>
+          <button onClick={handlePrint} className="btn-outline-navy dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">Print</button>
+          <button className="btn-outline-navy dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">Filter</button>
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">

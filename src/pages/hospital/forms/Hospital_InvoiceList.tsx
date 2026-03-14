@@ -38,6 +38,17 @@ export default function Hospital_InvoiceList(){
   async function onPrint(encounterId: string){
     try {
       const html = await coreApi(`/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/final-invoice/print`) as any
+      
+      // Use Electron print preview if available
+      const api: any = (window as any).electronAPI
+      try {
+        if (api && typeof api.printPreviewHtml === 'function'){
+          await api.printPreviewHtml(String(html), {})
+          return
+        }
+      } catch {}
+      
+      // Fallback to browser window
       const w = window.open('', '_blank'); if (!w) return
       w.document.write(String(html)); w.document.close(); w.focus()
     } catch {}

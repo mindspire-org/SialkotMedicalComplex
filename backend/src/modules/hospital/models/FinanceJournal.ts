@@ -13,6 +13,8 @@ const JournalSchema = new Schema({
   refId: { type: String },
   memo: { type: String },
   lines: { type: [JournalLineSchema], default: [] },
+  status: { type: String, default: 'active' }, // 'active' or 'reversed'
+  reversedAt: { type: String }, // ISO timestamp when reversed
 }, { timestamps: true })
 
 export type JournalLine = {

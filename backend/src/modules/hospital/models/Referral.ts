@@ -4,7 +4,7 @@ const ReferralSchema = new Schema({
   type: { type: String, enum: ['lab', 'pharmacy', 'diagnostic'], required: true, index: true },
   status: { type: String, enum: ['pending','completed','cancelled'], default: 'pending', index: true },
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   doctorId: { type: Schema.Types.ObjectId, ref: 'Hospital_Doctor', required: true, index: true },
   prescriptionId: { type: Schema.Types.ObjectId, ref: 'Hospital_Prescription' },
   tests: [{ type: String }],

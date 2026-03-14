@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { hospitalApi, api as coreApi } from '../../utils/api'
+import Toast, { type ToastState } from '../ui/Toast'
 
 export type ReceivedDeathFormProps = {
   encounterId?: string
@@ -35,6 +36,7 @@ type RDForm = {
 export default function Hospital_ReceivedDeathForm({ encounterId, patient }: ReceivedDeathFormProps){
   const [form, setForm] = useState<RDForm>({ receiving: {} })
   const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState<ToastState>(null)
 
   // Prefill derived fields from patient context once
   useEffect(()=>{
@@ -97,7 +99,13 @@ export default function Hospital_ReceivedDeathForm({ encounterId, patient }: Rec
       ...form,
       emergencyReportedDate: form.emergencyReportedDate ? new Date(form.emergencyReportedDate).toISOString() : undefined,
     }
-    await hospitalApi.upsertIpdReceivedDeath(encounterId, payload)
+    try {
+      await hospitalApi.upsertIpdReceivedDeath(encounterId, payload)
+      setToast({ type: 'success', message: 'Saved' })
+    } catch (e: any) {
+      setToast({ type: 'error', message: e?.message || 'Save failed' })
+      throw e
+    }
   }
 
   const printPreview = async () => {
@@ -128,6 +136,8 @@ export default function Hospital_ReceivedDeathForm({ encounterId, patient }: Rec
 
   return (
     <div className="space-y-3">
+      <Toast toast={toast} onClose={()=>setToast(null)} />
+      <div className="text-xl font-bold text-slate-800">Received Death</div>
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
         <div className="grid md:grid-cols-4 gap-3">
           <div>
@@ -242,14 +252,6 @@ export default function Hospital_ReceivedDeathForm({ encounterId, patient }: Rec
       <div className="pt-1 flex flex-wrap gap-2">
         <button disabled={loading || !encounterId} onClick={save} className="btn-outline-navy disabled:opacity-50">Save</button>
         <button disabled={loading || !encounterId} onClick={printPreview} className="btn disabled:opacity-50">Print</button>
-        <button disabled={loading || !encounterId} onClick={() => {
-          if (!encounterId) return
-          const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
-          const isElectronUA = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent || '')
-          const apiBase = (import.meta as any).env?.VITE_API_URL || ((isFile || isElectronUA) ? 'http://127.0.0.1:4000/api' : 'http://localhost:4000/api')
-          const url = `${apiBase}/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/received-death/print-pdf`
-          window.open(url, '_blank')
-        }} className="btn-outline-navy disabled:opacity-50">Download PDF</button>
       </div>
     </div>
   )

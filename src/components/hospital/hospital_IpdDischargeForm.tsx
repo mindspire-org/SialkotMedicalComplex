@@ -2,8 +2,9 @@
 import { useParams } from 'react-router-dom';
 import Hospital_PrintHeader from './hospital_PrintHeader';
 import { hospitalApi } from '../../utils/api';
+import Toast, { type ToastState } from '../ui/Toast'
 
-type Props = { encounterId?: string; patient?: any };
+type Props = { encounterId?: string; patient?: any; encounterType?: 'IPD'|'EMERGENCY' };
 
 export default function Discharged(props: Props){
   const { id } = useParams();
@@ -30,6 +31,7 @@ export default function Discharged(props: Props){
   const [doctorName, setDoctorName] = useState<string>('')
   const [signDate, setSignDate] = useState<string>('')
   const [doctorSignText, setDoctorSignText] = useState<string>('')
+  const [toast, setToast] = useState<ToastState>(null)
 
   useEffect(() => { (async () => {
     try {
@@ -49,7 +51,8 @@ export default function Discharged(props: Props){
       } else {
         const rid = String(id || '');
         if (rid) {
-          const e: any = await hospitalApi.getIPDAdmissionById(rid);
+          // Try IPD first
+          const e: any = await hospitalApi.getIPDAdmissionById(rid).catch(()=>null);
           const enc = e?.encounter;
           if (enc && enc._id) {
             setEncounterId(String(enc._id));
@@ -63,6 +66,24 @@ export default function Discharged(props: Props){
                 bed: enc.bedLabel || '',
                 doctor: enc.doctorId?.name || '',
               });
+            }
+          } else {
+            // Try ER encounter
+            const s: any = await hospitalApi.erBillingSummary(rid).catch(()=>null);
+            const erEnc = s?.encounter;
+            if (erEnc && erEnc._id) {
+              setEncounterId(String(erEnc._id));
+              if (!props.patient) {
+                setPatient({
+                  id: String(erEnc.patientId?._id || ''),
+                  name: String(erEnc.patientId?.fullName || ''),
+                  mrn: erEnc.patientId?.mrn || '',
+                  phone: erEnc.patientId?.phoneNormalized || '',
+                  address: erEnc.patientId?.address || '',
+                  bed: erEnc.bedLabel || '',
+                  doctor: erEnc.doctorId?.name || '',
+                });
+              }
             }
           }
         }
@@ -194,12 +215,107 @@ export default function Discharged(props: Props){
       followUpDate: signDate ? new Date(signDate).toISOString() : undefined,
       notes: notesBlob || undefined,
     }
-    await hospitalApi.upsertIpdDischargeSummary(encounterId, payload as any)
+    try {
+      await hospitalApi.upsertIpdDischargeSummary(encounterId, payload as any)
+      setToast({ type: 'success', message: 'Saved' })
+    } catch (e: any) {
+      setToast({ type: 'error', message: e?.message || 'Save failed' })
+      throw e
+    }
     if (doPrint) await previewHtml(apiBase + '/hospital/ipd/admissions/' + encodeURIComponent(encounterId) + '/discharge-summary/print')
   };
 
+  function printView(){
+    const w = window.open('', '_blank'); if (!w) return
+    const style = `
+      <style>@page{size:A4;margin:12mm}
+      body{font-family:system-ui,Segoe UI,Arial,sans-serif;color:#111}
+      .page{border:2px solid #222;padding:16px}
+      .grid{display:grid;gap:8px;align-items:end}
+      .line{border-bottom:1px solid #222;min-height:20px}
+      .title{font-weight:900;text-align:center;margin:6px 0;font-size:18px}
+      .t{border:1px solid #222}
+      .row2{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:end}
+      .lbl{font-weight:700}
+      .header{text-align:center;margin-bottom:12px}
+      .header-logo{height:60px;object-fit:contain}
+      .header-name{font-size:18px;font-weight:800}
+      .header-address{font-size:12px;color:#333}
+      </style>
+    `
+    const esc = (s?:string) => String(s??'').replace(/[&<>"']/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'} as any)[c])
+    const logo = brand?.hospitalLogo ? `<img src="${esc(brand.hospitalLogo)}" class="header-logo" />` : ''
+    const hdr = `
+      <div class="header">
+        <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:center;">
+          <div style="justify-self:start;">${logo}</div>
+          <div>
+            <div class="header-name">${esc(brand?.hospitalName||'')}</div>
+            <div class="header-address">${esc(brand?.hospitalAddress||'')}</div>
+            <div class="header-address">${[brand?.hospitalPhone, brand?.hospitalEmail].filter(Boolean).map(esc).join(' | ')}</div>
+          </div>
+          <div></div>
+        </div>
+      </div>`
+    const lv = (l:string, v?:string) => `<div class="row2"><div class="lbl">${l}</div><div class="line">${esc(v)}</div></div>`
+    const medsHtml = meds.filter(m => m.name).map((m,i) => `<tr><td>${i+1}</td><td>${esc(m.name)}</td><td>${esc(m.dose)}</td><td>${esc(m.route)}</td><td>${esc(m.freq)}</td><td>${esc(m.timing)}</td><td>${esc(m.duration)}</td></tr>`).join('')
+    const investEntries = Object.entries(invest).filter(([,v]) => v).map(([k,v]) => `${k}: ${v}`).join(', ')
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>${style}</head><body>
+      <div class="page">
+        ${hdr}
+        <div class="title">DISCHARGE SUMMARY</div>
+        <div class="grid" style="grid-template-columns:auto 1fr auto 160px;margin-top:8px">
+          <div class="lbl">Patient:</div><div class="line">${esc(patient?.name)}</div>
+          <div class="lbl">MRN:</div><div class="line">${esc(patient?.mrn)}</div>
+        </div>
+        <div class="grid" style="grid-template-columns:auto 1fr auto 160px;margin-top:4px">
+          <div class="lbl">Phone:</div><div class="line">${esc(patient?.phone)}</div>
+          <div class="lbl">Bed:</div><div class="line">${esc(patient?.bed)}</div>
+        </div>
+        <div class="grid" style="grid-template-columns:auto 1fr;margin-top:4px">
+          <div class="lbl">Address:</div><div class="line">${esc(patient?.address)}</div>
+        </div>
+        <div class="grid" style="grid-template-columns:auto 1fr auto 160px;margin-top:4px">
+          <div class="lbl">Doctor:</div><div class="line">${esc(patient?.doctor || doctorName)}</div>
+          <div class="lbl">Date of Release:</div><div class="line">${esc(dor)}</div>
+        </div>
+        ${presentingComplaints ? lv('Presenting Complaints:', presentingComplaints) : ''}
+        ${reasonOfAdmission ? lv('Reason of Admission:', reasonOfAdmission) : ''}
+        ${finalDiagnosis ? lv('Final Diagnosis:', finalDiagnosis) : ''}
+        ${proceduresOutcome ? lv('Procedures & Outcome:', proceduresOutcome) : ''}
+        ${treatmentInHospital ? lv('Treatment in Hospital:', treatmentInHospital) : ''}
+        ${investEntries ? lv('Investigations:', investEntries) : ''}
+        ${medsHtml ? `<div style="margin-top:8px"><div class="lbl">Medicines on Discharge:</div>
+        <table class="t" style="width:100%;border-collapse:collapse;margin-top:4px">
+          <tr style="background:#f0f0f0"><th class="t">Sr</th><th class="t">Medicine</th><th class="t">Dose</th><th class="t">Route</th><th class="t">Freq</th><th class="t">Timing</th><th class="t">Duration</th></tr>
+          ${medsHtml}
+        </table></div>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          <div class="t" style="padding:6px"><div style="font-weight:700;margin-bottom:6px">Condition at Discharge:</div><div>${['satisfactory','fair','poor'].map(x=>`${condAtDischarge===x?'☑':'☐'} ${x}`).join('  ')}</div></div>
+          <div class="t" style="padding:6px"><div style="font-weight:700;margin-bottom:6px">Response of Treatment:</div><div>${['excellent','good','average','poor'].map(x=>`${respOfTreatment===x?'☑':'☐'} ${x}`).join('  ')}</div></div>
+        </div>
+        ${followUpInstructions ? lv('Follow-up Instructions:', followUpInstructions) : ''}
+        ${lama ? '<div style="margin-top:8px;font-weight:700">LAMA (Left Against Medical Advice)</div>' : ''}
+        ${ddrConsent ? '<div style="margin-top:4px;font-weight:700">DDR Consent Obtained</div>' : ''}
+        ${advisedByDoctor ? '<div style="margin-top:4px;font-weight:700">Discharge Advised by Doctor</div>' : ''}
+        <div style="display:grid;grid-template-columns:1fr 320px;column-gap:10px;margin-top:16px">
+          <div>
+            <div class="row2"><div class="lbl">Doctor Name:</div><div class="line">${esc(doctorName || patient?.doctor)}</div></div>
+            <div style="margin-top:4px"><div class="lbl">Doctor Sign:</div><div class="line" style="width:200px;display:inline-block">${esc(doctorSignText)}</div></div>
+          </div>
+          <div style="text-align:right">
+            <div class="lbl">Sign Date: ${esc(signDate)}</div>
+          </div>
+        </div>
+      </div>
+      <script>window.print && setTimeout(()=>window.print(),200)</script>
+    </body></html>`
+    w.document.write(html); w.document.close(); w.focus()
+  }
+
   return (
     <div className="space-y-4 overflow-x-hidden">
+      <Toast toast={toast} onClose={()=>setToast(null)} />
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <Hospital_PrintHeader brand={brand} />
         <div className="mt-2 text-sm text-slate-600 font-semibold">
@@ -211,7 +327,7 @@ export default function Discharged(props: Props){
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-3 text-lg font-semibold text-slate-800">Discharge Form</div>
+        <div className="mb-3 text-xl font-bold text-slate-800">Discharge Summary</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <div>
             <label className="block mb-1 font-semibold">Date of Release (DOR)</label>
@@ -334,7 +450,7 @@ export default function Discharged(props: Props){
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2 justify-end">
-          <button onClick={() => { if (!encounterId) return; previewHtml(apiBase + '/hospital/ipd/admissions/' + encodeURIComponent(encounterId) + '/discharge-summary/print'); }} className="btn-outline-navy">Print</button>
+          <button onClick={printView} className="btn-outline-navy">Print</button>
           <button onClick={() => save(false)} className="btn-outline-navy">Save</button>
         </div>
       </div>

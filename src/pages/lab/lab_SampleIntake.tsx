@@ -1,18 +1,80 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { X, Search, ChevronDown } from 'lucide-react'
-import { labApi, hospitalApi, corporateApi } from '../../utils/api'
+import { corporateApi, hospitalApi, labApi, receptionApi } from '../../utils/api'
 import { printLabTokenSlip } from '../../utils/printLabToken'
+import Toast, { type ToastState } from '../../components/ui/Toast'
 
 type LabTest = { id: string; name: string; price: number }
+type SearchOption = { value: string; label: string }
 
-// local-only types for UI
+function MultiSelect({ options, selectedIds, onToggle, placeholder }: { options: SearchOption[]; selectedIds: string[]; onToggle: (id: string) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current) return
+      if (!ref.current.contains(e.target as any)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return options.filter(o => !q || o.label.toLowerCase().includes(q)).slice(0, 100)
+  }, [options, query])
+  const selectedLabels = useMemo(() => {
+    return selectedIds.map(id => options.find(o => o.value === id)?.label).filter(Boolean)
+  }, [options, selectedIds])
+  return (
+    <div ref={ref} className="relative">
+      <div
+        onClick={() => setOpen(o => !o)}
+        className="w-full min-h-[42px] rounded-md border border-slate-300 px-3 py-2 cursor-pointer flex flex-wrap gap-1 items-center dark:bg-slate-900 dark:border-slate-700"
+      >
+        {selectedLabels.length > 0 ? (
+          selectedLabels.map((label, idx) => (
+            <span key={idx} className="inline-flex items-center gap-1 rounded bg-violet-100 px-2 py-0.5 text-xs dark:bg-violet-900/30 dark:text-violet-300">
+              {label}
+              <button type="button" onClick={e => { e.stopPropagation(); onToggle(selectedIds[idx]) }} className="hover:text-violet-700">×</button>
+            </span>
+          ))
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500">{placeholder || 'Select...'}</span>
+        )}
+        <span className="ml-auto text-slate-500">▾</span>
+      </div>
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search..."
+            className="w-full border-b border-slate-200 px-3 py-2 text-sm outline-none dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+            onClick={e => e.stopPropagation()}
+          />
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+          ) : filtered.map(opt => (
+            <button
+              type="button"
+              key={String(opt.value)}
+              onClick={() => onToggle(String(opt.value))}
+              className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+            >
+              <div className="text-sm text-slate-800 dark:text-slate-200">{opt.label}</div>
+              {selectedIds.includes(String(opt.value)) ? <span className="text-xs text-violet-600">✓</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function formatPKR(n: number) {
   try { return n.toLocaleString('en-PK', { style: 'currency', currency: 'PKR' }) } catch { return `PKR ${n.toFixed(2)}` }
 }
-
- 
 
 export default function Lab_Orders() {
   const navigate = useNavigate()
@@ -49,16 +111,9 @@ export default function Lab_Orders() {
   const [patientPickSkipKey, setPatientPickSkipKey] = useState<string>('')
   const [forceCreateNextSubmit, setForceCreateNextSubmit] = useState(false)
 
-  const [query, setQuery] = useState('')
-  const [openList, setOpenList] = useState(false)
   const [selectedTestIds, setSelectedTestIds] = useState<string[]>([])
- 
-
-  
-
-  
-
   const [discount, setDiscount] = useState('0')
+  const [receivedAmount, setReceivedAmount] = useState('0')
   // Corporate billing fields
   const [companies, setCompanies] = useState<Array<{ id: string; name: string }>>([])
   const [corpCompanyId, setCorpCompanyId] = useState('')
@@ -69,6 +124,7 @@ export default function Lab_Orders() {
   const [corpTestPriceMap, setCorpTestPriceMap] = useState<Record<string, number>>({})
   const [confirmPatient, setConfirmPatient] = useState<null | { summary: string; patient: any; key: string }>(null)
   const [focusAfterConfirm, setFocusAfterConfirm] = useState<null | 'phone' | 'name'>(null)
+  const [toast, setToast] = useState<ToastState>(null)
   const phoneRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const skipLookupKeyRef = useRef<string | null>(null)
@@ -79,46 +135,16 @@ export default function Lab_Orders() {
   const [phoneSuggestItems, setPhoneSuggestItems] = useState<any[]>([])
   const phoneSuggestWrapRef = useRef<HTMLDivElement>(null)
   const phoneSuggestQueryRef = useRef<string>('')
-
-  const closePatientPick = () => {
-    setPatientPickOpen(false)
-    setPatientPickMatches([])
-    setPatientPickContinue(null)
-  }
-
-  const cancelPatientPick = () => {
-    closePatientPick()
-    // If user cancels, do not keep prompting for the same phone+name combo.
-    // They can change phone/name and then it will prompt again.
-    setPatientPickSkipKey(`${phone.trim()}|${fullName.trim()}`)
-  }
+  // Name search suggestions
+  const [nameSuggestOpen, setNameSuggestOpen] = useState(false)
+  const [nameSuggestItems, setNameSuggestItems] = useState<any[]>([])
+  const nameSuggestWrapRef = useRef<HTMLDivElement>(null)
+  const nameSuggestQueryRef = useRef<string>('')
 
   useEffect(() => {
     // If user changes identifying inputs, allow prompting again.
     setPatientPickSkipKey('')
   }, [phone, fullName])
-
-  const pickExistingPatient = async (p: any) => {
-    if (!patientPickContinue) return
-    try {
-      const resolved = await patientPickContinue(String(p?._id || ''))
-      closePatientPick()
-      await submitWithResolvedPatient(resolved)
-    } catch (e: any) {
-      alert(e?.message || 'Failed to select patient')
-    }
-  }
-
-  const pickCreateNewPatient = async () => {
-    if (!patientPickContinue) return
-    try {
-      const resolved = await patientPickContinue(undefined)
-      closePatientPick()
-      await submitWithResolvedPatient(resolved)
-    } catch (e: any) {
-      alert(e?.message || 'Failed to create patient')
-    }
-  }
 
   const clearPatientFieldsKeepPhone = () => {
     const digits = String(phone || '').replace(/\D+/g, '')
@@ -147,6 +173,8 @@ export default function Lab_Orders() {
     const onDoc = (e: MouseEvent) => {
       if (!phoneSuggestWrapRef.current) return
       if (!phoneSuggestWrapRef.current.contains(e.target as any)) setPhoneSuggestOpen(false)
+      if (!nameSuggestWrapRef.current) return
+      if (!nameSuggestWrapRef.current.contains(e.target as any)) setNameSuggestOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -272,6 +300,57 @@ export default function Lab_Orders() {
     }
   }
 
+  async function runNameSuggestLookup(nameQuery: string) {
+    try {
+      nameSuggestQueryRef.current = nameQuery
+      const r: any = await labApi.searchPatients({ name: nameQuery, limit: 8 })
+      const list: any[] = Array.isArray(r?.patients) ? r.patients : []
+      if (nameSuggestQueryRef.current !== nameQuery) return
+      setNameSuggestItems(list)
+      setNameSuggestOpen(list.length > 0)
+    } catch {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
+  }
+
+  function selectNameSuggestion(p: any) {
+    try {
+      if (p.fullName) setFullName(String(p.fullName))
+      if (p.mrn) setMrNumber(String(p.mrn))
+      if (p.phoneNormalized) setPhone(String(p.phoneNormalized))
+      if (p.age) setAge(String(p.age))
+      if (p.gender) setGender(String(p.gender))
+      if (p.address) setAddress(String(p.address))
+      if (p.fatherName) setGuardianName(String(p.fatherName))
+      if (p.guardianRel) {
+        const rel = String(p.guardianRel)
+        setGuardianRelation(rel === 'S/O' ? 'Father' : (rel === 'D/O' ? 'Mother' : rel))
+      }
+      if (p.cnicNormalized) setCnic(String(p.cnicNormalized))
+    } finally {
+      setNameSuggestOpen(false)
+    }
+  }
+
+  function onNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newName = e.target.value
+    setFullName(newName)
+    skipLookupKeyRef.current = null
+    lastPromptKeyRef.current = null
+    setNameSuggestOpen(false)
+    const trimmed = newName.trim()
+    if (trimmed.length >= 2) {
+      clearTimeout((window as any).labNameSuggestTimeout)
+        ; (window as any).labNameSuggestTimeout = setTimeout(() => {
+        runNameSuggestLookup(trimmed)
+      }, 300)
+    } else {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
+  }
+
   const getEffectivePrice = (id: string): number => {
     const base = (tests.find(t=>t.id===id)?.price) || 0
     if (!corpCompanyId) return base
@@ -279,19 +358,18 @@ export default function Lab_Orders() {
     return v != null ? v : base
   }
 
-  const filteredTests = useMemo(() => {
-    const term = query.trim().toLowerCase()
-    return tests
-      .filter(t => !selectedTestIds.includes(t.id))
-      .filter(t => !term || t.name.toLowerCase().includes(term))
-      .slice(0, 20)
-  }, [tests, query, selectedTestIds, corpCompanyId, corpTestPriceMap])
-
   const selectedTests = useMemo(() => selectedTestIds.map(id => tests.find(t => t.id === id)).filter(Boolean) as LabTest[], [selectedTestIds, tests])
 
   const subtotal = useMemo(() => selectedTests.reduce((s, t) => s + getEffectivePrice(t.id), 0), [selectedTests, corpCompanyId, corpTestPriceMap])
   const discountNum = Number(discount) || 0
   const net = Math.max(0, subtotal - discountNum)
+  const receivedNum = Math.max(0, Math.min(net, Number(receivedAmount) || 0))
+  const receivableNum = Math.max(0, net - receivedNum)
+
+  // Auto-set received amount to full net amount when tests are selected or net changes
+  useEffect(() => {
+    setReceivedAmount(String(net))
+  }, [net])
 
   // Load corporate companies once
   useEffect(()=>{
@@ -306,14 +384,6 @@ export default function Lab_Orders() {
     })()
     return ()=>{ mounted = false }
   }, [])
-
-  const addTest = (id: string) => {
-    setSelectedTestIds(prev => [...prev, id])
-    setQuery('')
-  }
-  const removeTest = (id: string) => setSelectedTestIds(prev => prev.filter(x => x !== id))
-
-  
 
   useEffect(()=>{
     const st = (location?.state || {}) as any
@@ -370,7 +440,7 @@ export default function Lab_Orders() {
 
       const skipKey = `${phone.trim()}|${fullName.trim()}`
       if (patientPickSkipKey && patientPickSkipKey === skipKey) {
-        alert('Please select an existing patient from the list, or change phone/name to create a new patient.')
+        setToast({ type: 'error', message: 'Please select an existing patient from the list, or change phone/name to create a new patient.' })
         return
       }
 
@@ -389,14 +459,14 @@ export default function Lab_Orders() {
       }
       patient = resp?.patient || null
     } catch (e: any) {
-      alert(e?.message || 'Failed to find/create patient')
+      setToast({ type: 'error', message: e?.message || 'Failed to find/create patient' })
       return
     }
     await submitWithResolvedPatient(patient)
   }
 
   async function submitWithResolvedPatient(patient: any) {
-    if (!patient){ alert('Patient not resolved'); return }
+    if (!patient){ setToast({ type: 'error', message: 'Patient not resolved' }); return }
     // update MR number display
     try { setMrNumber(String(patient.mrn||'')) } catch {}
     // populate gender from patient record if available
@@ -427,7 +497,10 @@ export default function Lab_Orders() {
         subtotal: getPrice(firstId),
         discount: discountNum,
         net: Math.max(0, getPrice(firstId) - discountNum),
+        receivedAmount: receivedNum,
+        paymentMethod: 'cash',
         referringConsultant: referring.trim() || undefined,
+        portal: window.location.pathname.startsWith('/reception') ? 'reception' : 'lab',
       }
       if (corpCompanyId){
         firstPayload.corporateId = corpCompanyId
@@ -435,7 +508,9 @@ export default function Lab_Orders() {
         if (corpCoPayPercent) firstPayload.corporateCoPayPercent = Number(corpCoPayPercent)
         if (corpCoverageCap) firstPayload.corporateCoverageCap = Number(corpCoverageCap)
       }
-      const createdFirst = await labApi.createOrder(firstPayload)
+      const createdFirst = window.location.pathname.startsWith('/reception')
+        ? await receptionApi.createLabOrder(firstPayload)
+        : await labApi.createOrder(firstPayload)
       sharedToken = String(createdFirst?.tokenNo || '')
       createdAtIso = String(createdFirst?.createdAt || createdAtIso)
       const sharedFbr = {
@@ -489,6 +564,7 @@ export default function Lab_Orders() {
           discount: 0,
           net: getPrice(tid),
           referringConsultant: referring.trim() || undefined,
+          portal: window.location.pathname.startsWith('/reception') ? 'reception' : 'lab',
           tokenNo: sharedToken,
         }
         if (corpCompanyId){
@@ -497,7 +573,9 @@ export default function Lab_Orders() {
           if (corpCoPayPercent) payload.corporateCoPayPercent = Number(corpCoPayPercent)
           if (corpCoverageCap) payload.corporateCoverageCap = Number(corpCoverageCap)
         }
-        const created = await labApi.createOrder(payload)
+        const created = window.location.pathname.startsWith('/reception')
+          ? await receptionApi.createLabOrder(payload)
+          : await labApi.createOrder(payload)
         // Link back to IPD encounter if provided — update existing 'referred' link if present, else create one
         try {
           const encId = (location?.state as any)?.encounterId
@@ -555,6 +633,8 @@ export default function Lab_Orders() {
         subtotal,
         discount: discountNum,
         net,
+        receivedAmount: receivedNum,
+        receivableAmount: receivableNum,
         printedBy,
         fbr: sharedFbr as any,
       })
@@ -568,10 +648,9 @@ export default function Lab_Orders() {
       setCnic('')
       setMrNumber('')
       setReferring('')
-      setQuery('')
-      setOpenList(false)
       setSelectedTestIds([])
       setDiscount('0')
+      setReceivedAmount('0')
       setCorpCompanyId('')
       setCorpPreAuthNo('')
       setCorpCoPayPercent('')
@@ -586,8 +665,8 @@ export default function Lab_Orders() {
       phoneSuggestQueryRef.current = ''
       skipLookupKeyRef.current = null
       lastPromptKeyRef.current = null
-      navigate('/lab/orders')
-    } catch (e){ console.error(e); alert('Failed to create order(s)') }
+      navigate(window.location.pathname.startsWith('/reception') ? '/reception/lab/sample-intake' : '/lab/orders')
+    } catch (e){ console.error(e); setToast({ type: 'error', message: 'Failed to create order(s)' }) }
   }
 
   // Lookup existing patient only when both phone and name are present
@@ -622,46 +701,200 @@ export default function Lab_Orders() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Patient Details</div>
-        <div className="text-xs text-slate-500">Enter patient demographics</div>
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Phone *</label>
-            <div ref={phoneSuggestWrapRef} className="relative">
-              <input
-                value={phone}
-                onChange={onPhoneChange}
-                ref={phoneRef}
-                maxLength={11}
-                onBlur={()=>lookupExistingByPhoneAndName('phone')}
-                onFocus={()=>{ if (phoneSuggestItems.length>0) setPhoneSuggestOpen(true) }}
-                className="w-full rounded-md border border-slate-300 px-3 py-2"
-                placeholder="Type phone to search"
-              />
-              {phoneSuggestOpen && (
-                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-                  {phoneSuggestItems.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-slate-500">No results</div>
-                  ) : (
-                    phoneSuggestItems.map((p:any, idx:number) => (
-                      <button
-                        type="button"
-                        key={p._id || idx}
-                        onClick={()=> selectPhoneSuggestion(p)}
-                        className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
-                      >
-                        <div className="text-sm font-medium text-slate-800">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500">{p.mrn || '-'}</span></div>
-                        <div className="text-xs text-slate-600">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
-                        {p.address && <div className="text-xs text-slate-500 truncate">{p.address}</div>}
-                      </button>
-                    ))
+    <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-[#0b1220] dark:text-slate-100">
+      <div className="p-4 sm:p-6">
+        <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Sample Intake</h2>
+      <form onSubmit={e => { e.preventDefault(); onSubmit() }} className="mt-6 space-y-8">
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Patient Information */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Patient Information</h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Phone</label>
+                <div ref={phoneSuggestWrapRef} className="relative">
+                  <input
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500"
+                    placeholder="Type phone to search"
+                    value={phone}
+                    maxLength={11}
+                    onChange={onPhoneChange}
+                    onBlur={() => lookupExistingByPhoneAndName('phone')}
+                    onFocus={() => { if (phoneSuggestItems.length > 0) setPhoneSuggestOpen(true) }}
+                    ref={phoneRef}
+                  />
+                  {phoneSuggestOpen && (
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+                      {phoneSuggestItems.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+                      ) : (
+                        phoneSuggestItems.map((p: any, idx: number) => (
+                          <button
+                            type="button"
+                            key={p._id || idx}
+                            onClick={() => selectPhoneSuggestion(p)}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                          >
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
                   )}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Patient Name</label>
+                <div ref={nameSuggestWrapRef} className="relative">
+                  <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Type name to search" value={fullName} onChange={onNameChange} onBlur={() => lookupExistingByPhoneAndName('name')} onFocus={() => { if (nameSuggestItems.length > 0) setNameSuggestOpen(true) }} ref={nameRef} />
+                  {nameSuggestOpen && (
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+                      {nameSuggestItems.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+                      ) : (
+                        nameSuggestItems.map((p: any, idx: number) => (
+                          <button
+                            type="button"
+                            key={p._id || idx}
+                            onClick={() => selectNameSuggestion(p)}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                          >
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Search by MR Number</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Enter MR# (e.g., MR-15)" value={mrNumber} onChange={e => setMrNumber(e.target.value)} onBlur={async () => { const mr = mrNumber.trim(); if (!mr) return; try { const r = await labApi.getPatientByMrn(mr); const p = r.patient; setFullName(p.fullName || ''); setPhone(p.phoneNormalized || ''); setAge(p.age ? String(p.age) : ''); setGender(p.gender || ''); setAddress(p.address || ''); { const rel = String(p.guardianRel || ''); setGuardianRelation(rel === 'S/O' ? 'Father' : (rel === 'D/O' ? 'Mother' : rel || '')); } setGuardianName(p.fatherName || ''); setCnic(p.cnicNormalized || ''); } catch {} }} onKeyDown={async (e) => { if (e.key !== 'Enter') return; e.preventDefault(); const mr = mrNumber.trim(); if (!mr) return; try { const r = await labApi.getPatientByMrn(mr); const p = r.patient; setFullName(p.fullName || ''); setPhone(p.phoneNormalized || ''); setAge(p.age ? String(p.age) : ''); setGender(p.gender || ''); setAddress(p.address || ''); { const rel = String(p.guardianRel || ''); setGuardianRelation(rel === 'S/O' ? 'Father' : (rel === 'D/O' ? 'Mother' : rel || '')); } setGuardianName(p.fatherName || ''); setCnic(p.cnicNormalized || ''); } catch {} }} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Age</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="e.g., 25" value={age} onChange={e => setAge(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Gender</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={gender} onChange={e => setGender(e.target.value)}>
+                  <option value="">Select gender</option>
+                  <option className="dark:bg-slate-900">Male</option>
+                  <option className="dark:bg-slate-900">Female</option>
+                  <option className="dark:bg-slate-900">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={guardianRelation} onChange={e => setGuardianRelation(e.target.value)}>
+                  <option value="">Select</option>
+                  <option className="dark:bg-slate-900" value="Father">Father</option>
+                  <option className="dark:bg-slate-900" value="Mother">Mother</option>
+                  <option className="dark:bg-slate-900" value="Husband">Husband</option>
+                  <option className="dark:bg-slate-900" value="Wife">Wife</option>
+                  <option className="dark:bg-slate-900" value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian Name</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Father/Guardian Name" value={guardianName} onChange={e => setGuardianName(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">CNIC</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="13-digit CNIC (no dashes)" value={cnic} onChange={e => setCnic(e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Address</label>
+                <textarea className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" rows={3} placeholder="Residential Address" value={address} onChange={e => setAddress(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Tests & Billing */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Tests & Billing</h3>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Select Tests</label>
+                <MultiSelect
+                  options={tests.map(t => ({ value: t.id, label: `${t.name} (${formatPKR(getEffectivePrice(t.id))})` }))}
+                  selectedIds={selectedTestIds}
+                  onToggle={id => setSelectedTestIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+                  placeholder="Select tests..."
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Billing Type</label>
+                  <select value={corpCompanyId ? 'Corporate' : 'Cash'} onChange={e => { if (e.target.value !== 'Corporate') setCorpCompanyId('') }} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+                    <option>Cash</option>
+                    <option>Card</option>
+                    <option>Corporate</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Referring Consultant</label>
+                  <input value={referring} onChange={e => setReferring(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Optional" />
+                </div>
+              </div>
+              {corpCompanyId && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Corporate Company</label>
+                    <select value={corpCompanyId} onChange={e => setCorpCompanyId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+                      <option value="">None</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Pre-Auth No</label>
+                    <input value={corpPreAuthNo} onChange={e => setCorpPreAuthNo(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Co-Pay %</label>
+                    <input value={corpCoPayPercent} onChange={e => setCorpCoPayPercent(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0-100" />
+                  </div>
                 </div>
               )}
             </div>
           </div>
+        </section>
+
+        {/* Fee Details */}
+        <section className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Fee Details</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Subtotal</label>
+              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">{formatPKR(subtotal)}</div>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Discount</label>
+              <input value={discount} onChange={e => setDiscount(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Net Amount</label>
+              <div className="flex h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400">{formatPKR(net)}</div>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Received</label>
+              <input value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <div className="text-sm text-slate-600 dark:text-slate-400">Pending: <span className="font-semibold text-slate-800 dark:text-slate-200">{formatPKR(receivableNum)}</span></div>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => navigate(-1)} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Back</button>
+              <button type="submit" disabled={!fullName || !phone || selectedTests.length === 0} className="rounded-md bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40 dark:bg-violet-600 dark:hover:bg-violet-700">Submit ({formatPKR(net)})</button>
+            </div>
+          </div>
+        </section>
+      </form>
+      </div>
 
       {confirmPatient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -730,167 +963,25 @@ export default function Lab_Orders() {
           </div>
         </div>
       )}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Full Name *</label>
-            <input value={fullName} onChange={e=>{ setFullName(e.target.value); skipLookupKeyRef.current = null; lastPromptKeyRef.current = null }} ref={nameRef} onBlur={()=>lookupExistingByPhoneAndName('name')} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. Muhammad Zain" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Age</label>
-            <input value={age} onChange={e=>setAge(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. 22" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">MR Number</label>
-            <input value={mrNumber} onChange={e=>setMrNumber(e.target.value)} onBlur={async()=>{
-              const mr = mrNumber.trim(); if (!mr) return; try { const r = await labApi.getPatientByMrn(mr); const p = r.patient; setFullName(p.fullName||''); setPhone(p.phoneNormalized||''); setAge(p.age? String(p.age):''); setGender(p.gender||''); setAddress(p.address||''); { const rel = String(p.guardianRel||''); setGuardianRelation(rel==='S/O'?'Father':(rel==='D/O'?'Mother':rel||'')); } setGuardianName(p.fatherName||''); setCnic(p.cnicNormalized||''); } catch {}
-            }} onKeyDown={async (e)=>{ if (e.key !== 'Enter') return; e.preventDefault(); const mr = mrNumber.trim(); if (!mr) return; try { const r = await labApi.getPatientByMrn(mr); const p = r.patient; setFullName(p.fullName||''); setPhone(p.phoneNormalized||''); setAge(p.age? String(p.age):''); setGender(p.gender||''); setAddress(p.address||''); { const rel = String(p.guardianRel||''); setGuardianRelation(rel==='S/O'?'Father':(rel==='D/O'?'Mother':rel||'')); } setGuardianName(p.fatherName||''); setCnic(p.cnicNormalized||''); } catch {} }} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="MR-2401-000001" />
-          </div>
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-600">Referring Consultant</label>
-            <input value={referring} onChange={e=>setReferring(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="Optional" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Gender</label>
-            <select value={gender} onChange={e=>setGender(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">Select</option>
-              <option>Male</option>
-              <option>Female</option>
-              <option>Other</option>
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-600">Address</label>
-            <input value={address} onChange={e=>setAddress(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="Street, City" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Guardian Relation</label>
-            <select value={guardianRelation} onChange={e=>setGuardianRelation(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">Select</option>
-              <option value="Father">Father</option>
-              <option value="Mother">Mother</option>
-              <option value="Husband">Husband</option>
-              <option value="Wife">Wife</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Guardian Name</label>
-            <input value={guardianName} onChange={e=>setGuardianName(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g. Arif" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">CNIC</label>
-            <input value={cnic} onChange={e=>setCnic(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="#####-#######-#" />
-          </div>
-        </div>
-        {/* Corporate Billing */}
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Corporate Company</label>
-            <select value={corpCompanyId} onChange={e=>setCorpCompanyId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2">
-              <option value="">None</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          {corpCompanyId && (
-            <>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Pre-Auth No</label>
-                <input value={corpPreAuthNo} onChange={e=>setCorpPreAuthNo(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="Optional" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Co-Pay %</label>
-                <input value={corpCoPayPercent} onChange={e=>setCorpCoPayPercent(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="0-100" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Coverage Cap</label>
-                <input value={corpCoverageCap} onChange={e=>setCorpCoverageCap(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" placeholder="e.g., 5000" />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Select Tests</div>
-        <div className="text-xs text-slate-500">Type to search and pick multiple tests</div>
-        <div className="mt-3">
-          <div className="flex items-center gap-2 rounded-md border border-slate-300 px-2 py-2">
-            <Search className="h-4 w-4 text-slate-400" />
-            <div className="flex flex-wrap items-center gap-2">
-              {selectedTests.map(t => (
-                <span key={t.id} className="inline-flex items-center gap-2 rounded-md bg-slate-100 px-2 py-1 text-sm">
-                  {t.name}
-                  <button onClick={()=>removeTest(t.id)} className="text-slate-500 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
-                </span>
-              ))}
-              <input value={query} onChange={e=>{ setQuery(e.target.value); setOpenList(true) }} onFocus={()=>setOpenList(true)} placeholder="Search test..." className="min-w-[160px] flex-1 outline-none" />
-            </div>
-            <button onClick={()=>setOpenList(o=>!o)} className="ml-auto text-slate-500"><ChevronDown className="h-4 w-4" /></button>
-          </div>
-          {openList && filteredTests.length > 0 && (
-            <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-sm">
-              {filteredTests.map(t => (
-                <button key={t.id} onClick={()=>addTest(t.id)} className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50">
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{t.name}</div>
-                    <div className="text-xs text-slate-500">Price: {formatPKR(getEffectivePrice(t.id))}</div>
-                  </div>
-                  <div className="text-xs text-slate-600">{formatPKR(getEffectivePrice(t.id))}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-base font-semibold text-slate-800">Selected Tests ({selectedTests.length})</div>
-        <div className="mt-3 divide-y divide-slate-200 text-sm">
-          {selectedTests.map(t => (
-            <div key={t.id} className="flex items-center justify-between py-2">
-              <div>{t.name}</div>
-              <div>{formatPKR(getEffectivePrice(t.id))}</div>
-            </div>
-          ))}
-          <div className="flex items-center justify-between py-2">
-            <div className="text-slate-600">Subtotal</div>
-            <div>{formatPKR(subtotal)}</div>
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="text-slate-600">Discount</div>
-            <input value={discount} onChange={e=>setDiscount(e.target.value)} className="w-40 rounded-md border border-slate-300 px-3 py-1.5 text-right" placeholder="0" />
-          </div>
-          <div className="flex items-center justify-between py-2 font-semibold">
-            <div>Net Amount</div>
-            <div>{formatPKR(net)}</div>
-          </div>
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={()=>navigate(-1)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">Back</button>
-          <button disabled={!fullName || !phone || selectedTests.length===0} onClick={onSubmit} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Submit ({formatPKR(net)})</button>
-        </div>
-      </div>
       {patientPickOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-              <div className="text-base font-semibold text-slate-800">Select Patient (Phone: {phone})</div>
-              <button onClick={closePatientPick} className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100">×</button>
-            </div>
+            <div className="border-b border-slate-200 px-5 py-3 text-base font-semibold text-slate-800">Select Patient</div>
             <div className="max-h-96 overflow-y-auto p-2">
               {patientPickMatches.map((p, idx) => (
                 <button
                   key={p._id || idx}
-                  onClick={() => pickExistingPatient(p)}
+                  onClick={async () => {
+                    if (!patientPickContinue) return
+                    try {
+                      const resolved = await patientPickContinue(String(p?._id || ''))
+                      setPatientPickOpen(false)
+                      await submitWithResolvedPatient(resolved)
+                    } catch (e: any) {
+                      setToast({ type: 'error', message: e?.message || 'Failed to select patient' })
+                    }
+                  }}
                   className="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50"
-                  type="button"
                 >
                   <div className="text-sm font-medium text-slate-800">{p.fullName || 'Unnamed'}</div>
                   <div className="text-xs text-slate-500">{p.mrn || '-'}{p.fatherName ? ` • ${p.fatherName}` : ''}</div>
@@ -898,12 +989,22 @@ export default function Lab_Orders() {
               ))}
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button onClick={cancelPatientPick} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
-              <button onClick={pickCreateNewPatient} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white">Create New Patient</button>
+              <button onClick={() => { setPatientPickOpen(false); setPatientPickSkipKey(`${phone.trim()}|${fullName.trim()}`) }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
+              <button onClick={async () => {
+                if (!patientPickContinue) return
+                try {
+                  const resolved = await patientPickContinue(undefined)
+                  setPatientPickOpen(false)
+                  await submitWithResolvedPatient(resolved)
+                } catch (e: any) {
+                  setToast({ type: 'error', message: e?.message || 'Failed to create patient' })
+                }
+              }} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white">Create New Patient</button>
             </div>
           </div>
         </div>
       )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }

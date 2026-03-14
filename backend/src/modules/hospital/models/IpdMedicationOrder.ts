@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdMedicationOrderSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   drugId: { type: String },
   drugName: { type: String },
   dose: { type: String },

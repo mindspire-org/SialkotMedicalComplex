@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { logAudit } from '../../utils/hospital_audit'
-import { hospitalApi, corporateApi } from '../../utils/api'
+import { corporateApi, hospitalApi } from '../../utils/api'
 import Hospital_TokenSlip, { type TokenSlipData } from '../../components/hospital/Hospital_TokenSlip'
 
 type SearchOption = { value: string; label: string }
@@ -53,9 +54,14 @@ function SearchSelect({ options, value, onChange, placeholder }: { options: Sear
 }
 
 export default function Hospital_TokenGenerator() {
+  const [searchParams] = useSearchParams()
+  const tokenId = searchParams.get('tokenId')
+  const isEditMode = Boolean(tokenId)
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; fee?: number }>>([])
-  const [doctors, setDoctors] = useState<Array<{ id: string; name: string; fee?: number }>>([])
+  const [doctors, setDoctors] = useState<Array<{ id: string; name: string; publicFee?: number; privateFee?: number; fee?: number }>>([])
   const [companies, setCompanies] = useState<Array<{ id: string; name: string }>>([])
+  const lastAutoConsultationFeeRef = useRef<string | null>(null)
+  const feeManuallyEditedRef = useRef(false)
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -63,7 +69,13 @@ export default function Hospital_TokenGenerator() {
         const dRes = await hospitalApi.listDepartments() as any
         const deps = (dRes.departments || dRes || []).map((d: any) => ({ id: String(d._id || d.id), name: d.name, fee: Number(d.opdBaseFee ?? d.baseFee ?? d.fee ?? 0) }))
         const docRes = await hospitalApi.listDoctors() as any
-        const docs = (docRes.doctors || docRes || []).map((r: any) => ({ id: String(r._id || r.id), name: r.name, fee: Number(r.opdBaseFee ?? r.baseFee ?? r.fee ?? 0) }))
+        const docs = (docRes.doctors || docRes || []).map((r: any) => ({
+          id: String(r._id || r.id),
+          name: r.name,
+          publicFee: Number(r.opdPublicFee ?? r.opdBaseFee ?? r.baseFee ?? r.fee ?? 0),
+          privateFee: Number(r.opdPrivateFee ?? r.opdBaseFee ?? r.baseFee ?? r.fee ?? 0),
+          fee: Number(r.opdBaseFee ?? r.baseFee ?? r.fee ?? 0),
+        }))
         // load corporate companies
         let comps: Array<{ id: string; name: string }> = []
         try {
@@ -77,7 +89,27 @@ export default function Hospital_TokenGenerator() {
     load()
     return () => { cancelled = true }
   }, [])
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{ 
+    phone: string
+    mrNumber: string
+    patientName: string
+    age: string
+    gender: string
+    guardianRel: string
+    guardianName: string
+    cnic: string
+    address: string
+    doctor: string
+    departmentId: string
+    visitCategory: 'public' | 'private'
+    billingType: string
+    consultationFee: string
+    discount: string
+    corporateCompanyId: string
+    corporatePreAuthNo: string
+    corporateCoPayPercent: string
+    corporateCoverageCap: string
+  }>({
     phone: '',
     mrNumber: '',
     patientName: '',
@@ -89,6 +121,7 @@ export default function Hospital_TokenGenerator() {
     address: '',
     doctor: '',
     departmentId: '',
+    visitCategory: 'public',
     billingType: 'Cash',
     consultationFee: '',
     discount: '0',
@@ -98,14 +131,50 @@ export default function Hospital_TokenGenerator() {
     corporateCoverageCap: '',
   })
 
+  const [loadingToken, setLoadingToken] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadTokenForEdit() {
+      if (!tokenId) return
+      try {
+        setLoadingToken(true)
+        const res: any = await hospitalApi.getToken(String(tokenId))
+        const t: any = res?.token
+        if (!t) throw new Error('Token not found')
+
+        const p: any = t.patientId || {}
+        const docId = t.doctorId?._id || t.doctorId
+        const depId = t.departmentId?._id || t.departmentId
+
+        setForm(prev => ({
+          ...prev,
+          phone: String(p.phoneNormalized || prev.phone || ''),
+          mrNumber: String(p.mrn || t.mrn || prev.mrNumber || ''),
+          patientName: String(p.fullName || t.patientName || prev.patientName || ''),
+          age: String(p.age || prev.age || ''),
+          gender: String(p.gender || prev.gender || ''),
+          guardianRel: String(p.guardianRel || prev.guardianRel || ''),
+          guardianName: String(p.fatherName || prev.guardianName || ''),
+          cnic: String(p.cnicNormalized || prev.cnic || ''),
+          address: String(p.address || prev.address || ''),
+          doctor: docId ? String(docId) : '',
+          departmentId: depId ? String(depId) : prev.departmentId,
+          consultationFee: String(Number(t.fee || 0) + Number(t.discount || 0)),
+          discount: String(Number(t.discount || 0)),
+        }))
+      } catch (e: any) {
+        showToast('error', e?.message || 'Failed to load token for edit')
+      } finally {
+        if (!cancelled) setLoadingToken(false)
+      }
+    }
+    loadTokenForEdit()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenId])
 
 
-  // Scheduling (OPD appointments)
-  const [apptDate, setApptDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
-  const [schedules, setSchedules] = useState<Array<{ _id: string; doctorId: string; dateIso: string; startTime: string; endTime: string; slotMinutes: number; fee?: number; followupFee?: number }>>([])
-  const [scheduleId, setScheduleId] = useState('')
-  const [selectedSlotNo, setSelectedSlotNo] = useState<number | null>(null)
-  const [slotRows, setSlotRows] = useState<Array<{ slotNo: number; start: string; end: string; status: 'free' | 'appt' | 'token'; appt?: any; tokenNo?: string }>>([])
 
   const finalFee = useMemo(() => {
     const fee = parseFloat(form.consultationFee || '0')
@@ -117,6 +186,8 @@ export default function Hospital_TokenGenerator() {
   const update = (key: keyof typeof form, value: string) => setForm(prev => ({ ...prev, [key]: value }))
 
   const reset = () => {
+    lastAutoConsultationFeeRef.current = null
+    feeManuallyEditedRef.current = false
     setForm({
       phone: '',
       mrNumber: '',
@@ -129,6 +200,7 @@ export default function Hospital_TokenGenerator() {
       address: '',
       doctor: '',
       departmentId: '',
+      visitCategory: 'public',
       billingType: 'Cash',
       consultationFee: '',
       discount: '0',
@@ -178,19 +250,45 @@ export default function Hospital_TokenGenerator() {
     if (sel && sel.charges != null) setIpdDeposit(String(sel.charges))
   }, [ipdBedId, ipdBeds])
 
-  // Auto-quote fee when department/doctor/corporate changes
+  // Auto-quote fee when department/doctor/visitCategory/corporate changes
   useEffect(() => {
     let cancelled = false
     async function run() {
       if (!form.departmentId) return
       const getBaseFromQuote = async (): Promise<number> => {
         try {
-          const res = await hospitalApi.quoteOPDPrice({ departmentId: form.departmentId, doctorId: form.doctor || undefined, visitType: undefined }) as any
+          const res = await hospitalApi.quoteOPDPrice({
+            departmentId: form.departmentId,
+            doctorId: form.doctor || undefined,
+            visitType: undefined,
+            visitCategory: form.visitCategory || undefined,
+          }) as any
           const feeCandidate = [res?.fee, res?.feeResolved, res?.pricing?.feeResolved, res?.amount, res?.price, res?.data?.fee]
             .map((x: any) => Number(x))
             .find(n => Number.isFinite(n) && n >= 0)
           return feeCandidate ?? 0
         } catch { return 0 }
+      }
+
+      // For non-corporate billing, prefer instant local fee resolution so switching Token Type
+      // updates the fee immediately and predictably.
+      if (form.billingType !== 'Corporate') {
+        const selDoc = doctors.find(d => String(d.id) === String(form.doctor))
+        const docBase = form.visitCategory === 'private' ? selDoc?.privateFee : selDoc?.publicFee
+        const depBase = departments.find(d => String(d.id) === String(form.departmentId))?.fee
+        const base = Number.isFinite(docBase as any) && Number(docBase) > 0
+          ? Number(docBase)
+          : (Number.isFinite(depBase as any) && Number(depBase) > 0 ? Number(depBase) : 0)
+        const nextFee = String(Number(base || 0))
+        if (!cancelled) {
+          setForm(prev => {
+            if (feeManuallyEditedRef.current) return prev
+            lastAutoConsultationFeeRef.current = nextFee
+            feeManuallyEditedRef.current = false
+            return { ...prev, consultationFee: nextFee }
+          })
+        }
+        return
       }
 
       if (form.billingType === 'Corporate' && form.corporateCompanyId) {
@@ -212,7 +310,8 @@ export default function Hospital_TokenGenerator() {
             return rank(a.ruleType) - rank(b.ruleType)
           })
           const rule = candidates[0] || null
-          const docBase = doctors.find(d => String(d.id) === String(form.doctor))?.fee
+          const selDoc = doctors.find(d => String(d.id) === String(form.doctor))
+          const docBase = form.visitCategory === 'private' ? selDoc?.privateFee : selDoc?.publicFee
           const depBase = departments.find(d => String(d.id) === String(form.departmentId))?.fee
           let base = Number.isFinite(docBase!) && Number(docBase) > 0 ? Number(docBase) : (Number.isFinite(depBase!) && Number(depBase) > 0 ? Number(depBase) : NaN)
           if (!Number.isFinite(base) || base <= 0) base = await getBaseFromQuote()
@@ -232,79 +331,50 @@ export default function Hospital_TokenGenerator() {
 
       // No corporate or failed local compute: use backend quote
       try {
-        const res = await hospitalApi.quoteOPDPrice({ departmentId: form.departmentId, doctorId: form.doctor || undefined, visitType: undefined, corporateId: form.billingType === 'Corporate' ? (form.corporateCompanyId || undefined) : undefined }) as any
+        const res = await hospitalApi.quoteOPDPrice({
+          departmentId: form.departmentId,
+          doctorId: form.doctor || undefined,
+          visitType: undefined,
+          corporateId: form.billingType === 'Corporate' ? (form.corporateCompanyId || undefined) : undefined,
+          visitCategory: form.visitCategory || undefined,
+        }) as any
         if (!cancelled) {
           const feeCandidate = [res?.fee, res?.feeResolved, res?.pricing?.feeResolved, res?.amount, res?.price, res?.data?.fee]
             .map((x: any) => Number(x))
             .find(n => Number.isFinite(n) && n >= 0)
-          if (feeCandidate != null) setForm(prev => ({ ...prev, consultationFee: String(feeCandidate) }))
+          if (feeCandidate != null) {
+            const nextFee = String(feeCandidate)
+            setForm(prev => {
+              if (feeManuallyEditedRef.current) return prev
+              lastAutoConsultationFeeRef.current = nextFee
+              feeManuallyEditedRef.current = false
+              return { ...prev, consultationFee: nextFee }
+            })
+          }
         }
       } catch { }
     }
     run()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.departmentId, form.doctor, form.corporateCompanyId, form.billingType])
+  }, [form.departmentId, form.doctor, form.visitCategory, form.corporateCompanyId, form.billingType])
 
-  // Load doctor schedules for selected date (non-IPD only)
+  // Default consultation fee to the selected doctor's public/private fee and update instantly when switching category.
+  // Do not overwrite if the user manually edited the fee.
   useEffect(() => {
-    let cancelled = false
-    async function loadSchedules() {
-      try {
-        if (!form.doctor) { setSchedules([]); setScheduleId(''); return }
-        const res = await hospitalApi.listDoctorSchedules({ doctorId: form.doctor, date: apptDate }) as any
-        const items = (res?.schedules || []) as any[]
-        if (cancelled) return
-        setSchedules(items)
-        if (items.length === 1) setScheduleId(String(items[0]._id))
-        else setScheduleId('')
-      } catch { setSchedules([]); setScheduleId('') }
-    }
-    if (!isIPD) loadSchedules()
-    return () => { cancelled = true }
-  }, [form.doctor, apptDate, isIPD])
-
-  function toMin(hhmm: string) { const [h, m] = (hhmm || '').split(':').map(x => parseInt(x, 10) || 0); return (h * 60) + m }
-  function fromMin(min: number) { const h = Math.floor(min / 60).toString().padStart(2, '0'); const m = (min % 60).toString().padStart(2, '0'); return `${h}:${m}` }
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadSlots() {
-      setSelectedSlotNo(null)
-      setSlotRows([])
-      const s = schedules.find(x => String(x._id) === String(scheduleId))
-      if (!s) { return }
-      try {
-        const [ap, tk]: any = await Promise.all([
-          hospitalApi.listAppointments({ scheduleId: String(s._id) }),
-          hospitalApi.listTokens({ scheduleId: String(s._id) }),
-        ])
-        const appts: any[] = ap?.appointments || []
-        const tokens: any[] = tk?.tokens || []
-        const tokenBySlot = new Map<number, any>()
-        for (const t of tokens) {
-          const st = String(t?.status || '')
-          if (st === 'returned' || st === 'cancelled') continue
-          const n = Number(t.slotNo || 0)
-          if (n > 0) tokenBySlot.set(n, t)
-        }
-        const slotMinutes = Math.max(5, Number(s.slotMinutes || 15))
-        const total = Math.max(0, Math.floor((toMin(s.endTime) - toMin(s.startTime)) / slotMinutes))
-        const rows: Array<{ slotNo: number; start: string; end: string; status: 'free' | 'appt' | 'token'; appt?: any; tokenNo?: string }> = []
-        for (let i = 1; i <= total; i++) {
-          const startMin = toMin(s.startTime) + (i - 1) * slotMinutes
-          const se = { start: fromMin(startMin), end: fromMin(startMin + slotMinutes) }
-          const appt = appts.find(a => Number(a.slotNo || 0) === i && ['booked', 'confirmed', 'checked-in'].includes(String(a.status || '')))
-          if (appt) rows.push({ slotNo: i, ...se, status: 'appt', appt })
-          else if (tokenBySlot.has(i)) rows.push({ slotNo: i, ...se, status: 'token', tokenNo: tokenBySlot.get(i)?.tokenNo })
-          else rows.push({ slotNo: i, ...se, status: 'free' })
-        }
-        if (!cancelled) { setSlotRows(rows) }
-      } catch { if (!cancelled) { setSlotRows([]); setSelectedSlotNo(null) } }
-    }
-    if (!isIPD && scheduleId) loadSlots()
-    return () => { cancelled = true }
-  }, [scheduleId, schedules, isIPD])
+    if (!form.doctor) return
+    const selDoc = doctors.find(d => String(d.id) === String(form.doctor))
+    if (!selDoc) return
+    const base = form.visitCategory === 'private' ? selDoc.privateFee : selDoc.publicFee
+    if (!Number.isFinite(base as any)) return
+    const nextFee = String(Number(base || 0))
+    setForm(prev => {
+      if (feeManuallyEditedRef.current) return prev
+      lastAutoConsultationFeeRef.current = nextFee
+      feeManuallyEditedRef.current = false
+      return { ...prev, consultationFee: nextFee }
+    })
+  }, [doctors, form.doctor, form.visitCategory])
 
   const [confirmPatient, setConfirmPatient] = useState<null | { summary: string; patient: any; key: string }>(null)
   const [focusAfterConfirm, setFocusAfterConfirm] = useState<null | 'phone' | 'name'>(null)
@@ -318,6 +388,11 @@ export default function Hospital_TokenGenerator() {
   const [phoneSuggestItems, setPhoneSuggestItems] = useState<any[]>([])
   const phoneSuggestWrapRef = useRef<HTMLDivElement>(null)
   const phoneSuggestQueryRef = useRef<string>('')
+  // Name search suggestions
+  const [nameSuggestOpen, setNameSuggestOpen] = useState(false)
+  const [nameSuggestItems, setNameSuggestItems] = useState<any[]>([])
+  const nameSuggestWrapRef = useRef<HTMLDivElement>(null)
+  const nameSuggestQueryRef = useRef<string>('')
   const [toast, setToast] = useState<null | { type: 'success' | 'error'; message: string }>(null)
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message })
@@ -328,6 +403,8 @@ export default function Hospital_TokenGenerator() {
     const onDoc = (e: MouseEvent) => {
       if (!phoneSuggestWrapRef.current) return
       if (!phoneSuggestWrapRef.current.contains(e.target as any)) setPhoneSuggestOpen(false)
+      if (!nameSuggestWrapRef.current) return
+      if (!nameSuggestWrapRef.current.contains(e.target as any)) setNameSuggestOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -430,6 +507,53 @@ export default function Hospital_TokenGenerator() {
     showToast('success', 'Patient selected')
   }
 
+  async function runNameSuggestLookup(nameQuery: string) {
+    try {
+      nameSuggestQueryRef.current = nameQuery
+      const r: any = await hospitalApi.searchPatients({ name: nameQuery, limit: 8 })
+      const list: any[] = Array.isArray(r?.patients) ? r.patients : []
+      if (nameSuggestQueryRef.current !== nameQuery) return
+      setNameSuggestItems(list)
+      setNameSuggestOpen(list.length > 0)
+    } catch {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
+  }
+
+  function selectNameSuggestion(p: any) {
+    setForm(prev => ({
+      ...prev,
+      patientName: p.fullName || prev.patientName,
+      guardianName: p.fatherName || prev.guardianName,
+      guardianRel: p.guardianRel || prev.guardianRel,
+      address: p.address || prev.address,
+      gender: p.gender || prev.gender,
+      age: p.age || prev.age,
+      mrNumber: p.mrn || prev.mrNumber,
+      phone: p.phoneNormalized || prev.phone,
+      cnic: p.cnicNormalized || prev.cnic,
+    }))
+    setNameSuggestOpen(false)
+    showToast('success', 'Patient selected')
+  }
+
+  function onNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newName = e.target.value
+    update('patientName', newName)
+    setNameSuggestOpen(false)
+    const trimmed = newName.trim()
+    if (trimmed.length >= 2) {
+      clearTimeout((window as any).nameSuggestTimeout)
+        ; (window as any).nameSuggestTimeout = setTimeout(() => {
+        runNameSuggestLookup(trimmed)
+      }, 300)
+    } else {
+      setNameSuggestItems([])
+      setNameSuggestOpen(false)
+    }
+  }
+
   function clearPatientFieldsKeepPhone() {
     setForm(prev => ({
       ...prev,
@@ -487,13 +611,38 @@ export default function Hospital_TokenGenerator() {
     const selDoc = doctors.find(d => String(d.id) === String(form.doctor))
     const selDept = departments.find(d => String(d.id) === String(form.departmentId))
     if (!form.departmentId) {
-      alert('Please select a department before generating a token')
+      showToast('error', 'Please select a department before generating a token')
       return
     }
     try {
+      if (isEditMode) {
+        if (!tokenId) return
+        const feeGross = Math.max(0, Number(form.consultationFee || 0))
+        const disc = Math.max(0, Number(form.discount || 0))
+        const payload: any = {
+          departmentId: form.departmentId,
+          doctorId: form.doctor || undefined,
+          patientName: form.patientName || undefined,
+          phone: form.phone || undefined,
+          gender: form.gender || undefined,
+          guardianRel: form.guardianRel || undefined,
+          guardianName: form.guardianName || undefined,
+          cnic: form.cnic || undefined,
+          address: form.address || undefined,
+          age: form.age || undefined,
+          mrn: form.mrNumber || undefined,
+          overrideFee: feeGross,
+          discount: disc,
+        }
+        await hospitalApi.updateToken(String(tokenId), payload)
+        logAudit('token_edit', `tokenId=${tokenId}, dept=${form.departmentId}, doctor=${selDoc?.name || 'N/A'}, grossFee=${feeGross}, discount=${disc}`)
+        showToast('success', 'Token updated')
+        return
+      }
       // Inline IPD admit flow: if department is IPD, require bed and admit immediately
       if (isIPD) {
-        if (!ipdBedId) { alert('Please select a bed for IPD admission'); return }
+        if (!ipdBedId) { showToast('error', 'Please select a bed for IPD admission'); return }
+        let createdTokenId: string = ''
         const payload: any = {
           departmentId: form.departmentId,
           doctorId: form.doctor || undefined,
@@ -520,10 +669,18 @@ export default function Hospital_TokenGenerator() {
         const rawDeposit = String(ipdDeposit || '').trim()
         const cleanedDeposit = rawDeposit.replace(/[^0-9.]/g, '')
         const depAmt = cleanedDeposit ? parseFloat(cleanedDeposit) : NaN
+        payload.portal = 'hospital'
         const res = await hospitalApi.createOpdToken({ ...payload, overrideFee: isNaN(depAmt) ? undefined : depAmt }) as any
-        const tokenId = String(res?.token?._id || '')
-        if (!tokenId) throw new Error('Failed to create token for admission')
-        await hospitalApi.admitFromOpdToken({ tokenId, bedId: ipdBedId, deposit: isNaN(depAmt) ? undefined : depAmt })
+        createdTokenId = String(res?.token?._id || '')
+        if (!createdTokenId) throw new Error('Failed to create token for admission')
+        try {
+          await hospitalApi.admitFromOpdToken({ tokenId: createdTokenId, bedId: ipdBedId, deposit: isNaN(depAmt) ? undefined : depAmt })
+        } catch (admitErr: any) {
+          try {
+            await hospitalApi.deleteToken(createdTokenId)
+          } catch {}
+          throw admitErr
+        }
         logAudit('token_generate', `ipd_admit dept=IPD, bed=${ipdBedId}`)
         // Show print slip with full details
         const slip: TokenSlipData = {
@@ -553,6 +710,8 @@ export default function Hospital_TokenGenerator() {
       const payload: any = {
         departmentId: form.departmentId,
         doctorId: form.doctor || undefined,
+        visitCategory: form.visitCategory || undefined,
+        visitType: 'new',
         discount: Number(form.discount) || 0,
         paymentRef: undefined,
       }
@@ -562,6 +721,8 @@ export default function Hospital_TokenGenerator() {
         if (form.corporateCoPayPercent) payload.corporateCoPayPercent = Number(form.corporateCoPayPercent)
         if (form.corporateCoverageCap) payload.corporateCoverageCap = Number(form.corporateCoverageCap)
       }
+      if (form.billingType === 'Cash') payload.paidMethod = 'Cash'
+      else if (form.billingType === 'Card') payload.paidMethod = 'Bank'
       // Patient demographics for saving/updating patient
       payload.patientName = form.patientName || undefined
       payload.phone = form.phone || undefined
@@ -571,16 +732,6 @@ export default function Hospital_TokenGenerator() {
       payload.cnic = form.cnic || undefined
       payload.address = form.address || undefined
       payload.age = form.age || undefined
-      // Attach scheduleId and selected slot (if any)
-      if (!isIPD && scheduleId) {
-        (payload as any).scheduleId = scheduleId
-        const s = schedules.find(x => String(x._id) === String(scheduleId))
-        if (s && selectedSlotNo) {
-          const slotMinutes = Math.max(5, Number(s.slotMinutes || 15))
-          const startMin = toMin(s.startTime) + (selectedSlotNo - 1) * slotMinutes
-            ; (payload as any).apptStart = fromMin(startMin)
-        }
-      }
       if (form.mrNumber) payload.mrn = form.mrNumber
       else if (form.patientName) payload.patientName = form.patientName
       // If corporate is selected, ensure backend uses the resolved corporate fee
@@ -588,8 +739,10 @@ export default function Hospital_TokenGenerator() {
         const feeNum = Number(form.consultationFee)
         if (Number.isFinite(feeNum)) payload.overrideFee = feeNum
       }
+      payload.portal = window.location.pathname.startsWith('/reception') ? 'reception' : 'hospital'
       const res = await hospitalApi.createOpdToken(payload) as any
       const tokenNo = res?.token?.tokenNo || 'N/A'
+      const resolvedMrn = String(res?.token?.patientId?.mrn || res?.token?.mrn || form.mrNumber || '').trim() || undefined
       // Prepare slip and show (OPD)
       const slip: TokenSlipData = {
         tokenNo,
@@ -597,7 +750,7 @@ export default function Hospital_TokenGenerator() {
         doctorName: selDoc?.name || '-',
         patientName: form.patientName,
         phone: form.phone || undefined,
-        mrn: form.mrNumber || undefined,
+        mrn: resolvedMrn,
         age: form.age || undefined,
         gender: form.gender || undefined,
         guardianRel: form.guardianRel || undefined,
@@ -620,25 +773,29 @@ export default function Hospital_TokenGenerator() {
       setShowSlip(true)
       logAudit('token_generate', `patient=${form.patientName || 'N/A'}, dept=${form.departmentId}, doctor=${selDoc?.name || 'N/A'}, fee=${res?.pricing?.finalFee ?? finalFee}`)
     } catch (err: any) {
-      alert(err?.message || 'Failed to generate token')
+      showToast('error', err?.message || 'Failed to generate token')
     }
     reset()
   }
 
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-800">Token Generator</h2>
+    <div className="hospital-scope min-h-dvh bg-slate-50 text-slate-900 dark:bg-[#0b1220] dark:text-slate-100">
+      <div className="p-4 sm:p-6">
+        <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Token Generator</h2>
+      {loadingToken && (
+        <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Loading token...</div>
+      )}
       <form onSubmit={generateToken} className="mt-6 space-y-8">
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold text-slate-700">Patient Information</h3>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Patient Information</h3>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700">Phone</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Phone</label>
                 <div ref={phoneSuggestWrapRef} className="relative">
                   <div className="flex items-center gap-2">
                     <input
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500"
                       placeholder="Type phone to search"
                       value={form.phone}
                       maxLength={11}
@@ -647,30 +804,22 @@ export default function Hospital_TokenGenerator() {
                       onFocus={() => { if (phoneSuggestItems.length > 0) setPhoneSuggestOpen(true) }}
                       ref={phoneRef}
                     />
-                    <button
-                      type="button"
-                      onClick={clearPatientFieldsKeepPhone}
-                      className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                      title="Clear selected patient details but keep phone number"
-                    >
-                      Clear
-                    </button>
                   </div>
                   {phoneSuggestOpen && (
-                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
                       {phoneSuggestItems.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-slate-500">No results</div>
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
                       ) : (
                         phoneSuggestItems.map((p: any, idx: number) => (
                           <button
                             type="button"
                             key={p._id || idx}
                             onClick={() => selectPhoneSuggestion(p)}
-                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
                           >
-                            <div className="text-sm font-medium text-slate-800">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500">{p.mrn || '-'}</span></div>
-                            <div className="text-xs text-slate-600">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
-                            {p.address && <div className="text-xs text-slate-500 truncate">{p.address}</div>}
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
                           </button>
                         ))
                       )}
@@ -679,158 +828,154 @@ export default function Hospital_TokenGenerator() {
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700">Patient Name</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="Full Name" value={form.patientName} onChange={e => { update('patientName', e.target.value) }} ref={nameRef} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Patient Name</label>
+                <div ref={nameSuggestWrapRef} className="relative">
+                  <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Type name to search" value={form.patientName} onChange={onNameChange} onFocus={() => { if (nameSuggestItems.length > 0) setNameSuggestOpen(true) }} ref={nameRef} />
+                  {nameSuggestOpen && (
+                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:bg-slate-800 dark:border-slate-700">
+                      {nameSuggestItems.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">No results</div>
+                      ) : (
+                        nameSuggestItems.map((p: any, idx: number) => (
+                          <button
+                            type="button"
+                            key={p._id || idx}
+                            onClick={() => selectNameSuggestion(p)}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                          >
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'} <span className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'}</span></div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">{p.phoneNormalized || ''} • Age: {p.age || '-'} • {p.gender || '-'}</div>
+                            {p.address && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.address}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700">Search by MR Number</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="Enter MR# (e.g., MR-15)" value={form.mrNumber} onChange={e => update('mrNumber', e.target.value)} onKeyDown={onMrnKeyDown} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Search by MR Number</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Enter MR# (e.g., MR-15)" value={form.mrNumber} onChange={e => update('mrNumber', e.target.value)} onKeyDown={onMrnKeyDown} />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Age</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="e.g., 25" value={form.age} onChange={e => update('age', e.target.value)} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Age</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="e.g., 25" value={form.age} onChange={e => update('age', e.target.value)} />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Gender</label>
-                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" value={form.gender} onChange={e => update('gender', e.target.value)}>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Gender</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={form.gender} onChange={e => update('gender', e.target.value)}>
                   <option value="">Select gender</option>
-                  <option>Male</option>
-                  <option>Female</option>
-                  <option>Other</option>
+                  <option className="dark:bg-slate-900">Male</option>
+                  <option className="dark:bg-slate-900">Female</option>
+                  <option className="dark:bg-slate-900">Other</option>
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Guardian</label>
-                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" value={form.guardianRel} onChange={e => update('guardianRel', e.target.value)}>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian</label>
+                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={form.guardianRel} onChange={e => update('guardianRel', e.target.value)}>
                   <option value="">S/O or D/O</option>
-                  <option value="S/O">S/O</option>
-                  <option value="D/O">D/O</option>
+                  <option className="dark:bg-slate-900" value="S/O">S/O</option>
+                  <option className="dark:bg-slate-900" value="D/O">D/O</option>
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Guardian Name</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="Father/Guardian Name" value={form.guardianName} onChange={e => update('guardianName', e.target.value)} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Guardian Name</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Father/Guardian Name" value={form.guardianName} onChange={e => update('guardianName', e.target.value)} />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">CNIC</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="13-digit CNIC (no dashes)" value={form.cnic} onChange={e => update('cnic', e.target.value)} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">CNIC</label>
+                <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="13-digit CNIC (no dashes)" value={form.cnic} onChange={e => update('cnic', e.target.value)} />
               </div>
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700">Address</label>
-                <textarea className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" rows={3} placeholder="Residential Address" value={form.address} onChange={e => update('address', e.target.value)} />
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Address</label>
+                <textarea className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" rows={3} placeholder="Residential Address" value={form.address} onChange={e => update('address', e.target.value)} />
               </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold text-slate-700">Visit & Billing</h3>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:bg-slate-800 dark:border-slate-700">
+            <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Visit & Billing</h3>
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Doctor</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Doctor</label>
                 <SearchSelect
                   options={doctors.map(d => ({ value: d.id, label: d.name }))}
                   value={form.doctor}
                   onChange={(v) => update('doctor', v)}
                   placeholder="Select doctor"
                 />
-                <p className="mt-1 text-xs text-slate-500">Doctor selection is optional for IPD.</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Doctor selection is optional for IPD.</p>
               </div>
               {!isIPD && (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Appointment Date</label>
-                    <input type="date" value={apptDate} onChange={e => setApptDate(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" />
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Department</label>
+                    <SearchSelect
+                      options={departments.map(d => ({ value: d.id, label: d.name }))}
+                      value={form.departmentId}
+                      onChange={(v) => update('departmentId', v)}
+                      placeholder="Select department"
+                    />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Doctor Schedule</label>
-                    <select value={scheduleId} onChange={e => setScheduleId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200">
-                      <option value="">{schedules.length ? 'Select schedule' : 'No schedules found'}</option>
-                      {schedules.map(s => (
-                        <option key={s._id} value={s._id}>{s.startTime} - {s.endTime} • {s.slotMinutes} min</option>
-                      ))}
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Billing Type</label>
+                    <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white" value={form.billingType} onChange={e => update('billingType', e.target.value)}>
+                      <option className="dark:bg-slate-900">Cash</option>
+                      <option className="dark:bg-slate-900">Card</option>
+                      <option className="dark:bg-slate-900">Insurance</option>
+                      <option className="dark:bg-slate-900">Corporate</option>
                     </select>
-                    <p className="mt-1 text-xs text-slate-500">Select a schedule to pick a slot.</p>
-                    {scheduleId && (
-                      <div className="mt-3 rounded-md border border-slate-200 p-2">
-                        <div className="mb-2 flex items-center justify-between">
-                          <div className="text-xs font-medium text-slate-700">Slots</div>
-                          <div className="text-[10px] text-slate-500">Free • Appointment • Token</div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {slotRows.map(r => {
-                            const base = r.status === 'free' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : (r.status === 'appt' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700')
-                            const isSel = selectedSlotNo === r.slotNo
-                            const selCls = isSel ? 'ring-2 ring-violet-400' : ''
-                            const label = r.status === 'token' && r.tokenNo ? `${r.start} - ${r.end} • #${r.slotNo} • Token ${r.tokenNo}` : `${r.start} - ${r.end} • #${r.slotNo}`
-                            const title = r.status === 'token' && r.tokenNo ? `Token ${r.tokenNo}` : (r.status === 'appt' ? 'Appointment' : 'Free')
-                            return (
-                              <button key={r.slotNo} type="button" title={title} disabled={r.status !== 'free'} onClick={() => setSelectedSlotNo(r.slotNo)} className={`rounded-md border px-2 py-1 text-xs ${base} ${selCls} disabled:opacity-50`}>
-                                {label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {selectedSlotNo != null ? (
-                          <div className="mt-2 text-xs text-slate-600">Selected slot: #{selectedSlotNo}</div>
-                        ) : (
-                          <div className="mt-2 text-xs text-slate-500">No slot selected — will auto-assign next free slot</div>
-                        )}
-                      </div>
-                    )}
                   </div>
-                </div>
-              )}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Department</label>
-                <SearchSelect
-                  options={departments.map(d => ({ value: d.id, label: d.name }))}
-                  value={form.departmentId}
-                  onChange={(v) => update('departmentId', v)}
-                  placeholder="Select department"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Billing Type</label>
-                <select className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" value={form.billingType} onChange={e => update('billingType', e.target.value)}>
-                  <option>Cash</option>
-                  <option>Card</option>
-                  <option>Insurance</option>
-                  <option>Corporate</option>
-                </select>
-              </div>
-              {form.billingType === 'Corporate' && (
-                <>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Corporate Company</label>
-                    <select value={form.corporateCompanyId} onChange={e => update('corporateCompanyId', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200">
-                      <option value="">None</option>
-                      {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Token Type</label>
+                    <select
+                      value={form.visitCategory}
+                      onChange={e => {
+                        lastAutoConsultationFeeRef.current = null
+                        feeManuallyEditedRef.current = false
+                        update('visitCategory', e.target.value as any)
+                      }}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                    >
+                      <option className="dark:bg-slate-900" value="public">Public</option>
+                      <option className="dark:bg-slate-900" value="private">Private</option>
                     </select>
                   </div>
-                  {form.corporateCompanyId && (
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  {form.billingType === 'Corporate' && (
+                    <>
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-slate-700">Pre-Auth No</label>
-                        <input value={form.corporatePreAuthNo} onChange={e => update('corporatePreAuthNo', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="Optional" />
+                        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Corporate Company</label>
+                        <select value={form.corporateCompanyId} onChange={e => update('corporateCompanyId', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+                          <option className="dark:bg-slate-900" value="">None</option>
+                          {companies.map(c => (
+                            <option className="dark:bg-slate-900" key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
                       </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-slate-700">Co-Pay %</label>
-                        <input value={form.corporateCoPayPercent} onChange={e => update('corporateCoPayPercent', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="0-100" />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-slate-700">Coverage Cap</label>
-                        <input value={form.corporateCoverageCap} onChange={e => update('corporateCoverageCap', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="e.g., 5000" />
-                      </div>
-                    </div>
+                      {form.corporateCompanyId && (
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:col-span-2">
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Pre-Auth No</label>
+                            <input value={form.corporatePreAuthNo} onChange={e => update('corporatePreAuthNo', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="Optional" />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Co-Pay %</label>
+                            <input value={form.corporateCoPayPercent} onChange={e => update('corporateCoPayPercent', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0-100" />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Coverage Cap</label>
+                            <input value={form.corporateCoverageCap} onChange={e => update('corporateCoverageCap', e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="e.g., 5000" />
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
               )}
               {isIPD && (
                 <>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Select Bed</label>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Select Bed</label>
                     <select
                       value={ipdBedId}
                       onChange={(e) => {
@@ -839,19 +984,19 @@ export default function Hospital_TokenGenerator() {
                         const chargesAttr = opt?.getAttribute?.('data-charges')
                         if (chargesAttr !== null && chargesAttr !== undefined) setIpdDeposit(chargesAttr)
                       }}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                     >
-                      <option value="">Available beds</option>
+                      <option className="dark:bg-slate-900" value="">Available beds</option>
                       {ipdBedOptions.map(b => (
-                        <option key={b._id} value={String(b._id)} data-charges={b.charges ?? ''}>
+                        <option className="dark:bg-slate-900" key={b._id} value={String(b._id)} data-charges={b.charges ?? ''}>
                           {`${b.floorName ? `${b.floorName} / ` : ''}${b.locationName ? `${b.locationName} / ` : ''}${b.label}`}{b.charges != null ? ` - (Rs. ${b.charges})` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Bed Charges</label>
-                    <input value={ipdDeposit} onChange={e => setIpdDeposit(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="e.g., Rs. 1000" />
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Bed Charges</label>
+                    <input value={ipdDeposit} onChange={e => setIpdDeposit(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="e.g., Rs. 1000" />
                   </div>
                 </>
               )}
@@ -860,29 +1005,39 @@ export default function Hospital_TokenGenerator() {
         </section>
 
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-slate-700">Fee Details</h3>
+          <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Fee Details</h3>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Consultation Fee</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="Fee" value={form.consultationFee} onChange={e => update('consultationFee', e.target.value)} />
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Consultation Fee</label>
+              <input
+                className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500"
+                placeholder="Fee"
+                value={form.consultationFee}
+                onChange={e => {
+                  feeManuallyEditedRef.current = true
+                  update('consultationFee', e.target.value)
+                }}
+              />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Discount</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200" placeholder="0" value={form.discount} onChange={e => update('discount', e.target.value)} />
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Discount</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:bg-slate-900 dark:border-slate-700 dark:text-white dark:placeholder-slate-500" placeholder="0" value={form.discount} onChange={e => update('discount', e.target.value)} />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Final Fee</label>
-              <div className="flex h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700">Rs. {(isIPD ? (Number(ipdDeposit || '0') || 0).toFixed(2) : finalFee.toFixed(2))}</div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Final Fee</label>
+              <div className="flex h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400">Rs. {(isIPD ? (Number(ipdDeposit || '0') || 0).toFixed(2) : finalFee.toFixed(2))}</div>
             </div>
           </div>
         </section>
 
 
 
-        <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={reset} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reset Form</button>
-          <button type="submit" className="rounded-md bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800">Generate Token</button>
-        </div>
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={reset} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Reset Form</button>
+            <button type="submit" className="rounded-md bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 dark:bg-violet-600 dark:hover:bg-violet-700">
+              {isEditMode ? 'Update Token' : 'Generate Token'}
+            </button>
+          </div>
       </form>
       {showSlip && slipData && (
         <Hospital_TokenSlip open={showSlip} onClose={() => setShowSlip(false)} data={slipData} autoPrint={true} />
@@ -890,12 +1045,12 @@ export default function Hospital_TokenGenerator() {
 
 
       {confirmPatient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="border-b border-slate-200 px-5 py-3 text-base font-semibold text-slate-800">Confirm Patient</div>
-            <div className="px-5 py-4 text-sm whitespace-pre-wrap text-slate-700">{confirmPatient.summary}</div>
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button onClick={() => { if (confirmPatient) skipLookupKeyRef.current = confirmPatient.key; setConfirmPatient(null); setTimeout(() => { if (focusAfterConfirm === 'phone') phoneRef.current?.focus(); else if (focusAfterConfirm === 'name') nameRef.current?.focus(); setFocusAfterConfirm(null) }, 0) }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-slate-900 dark:ring-white/10">
+            <div className="border-b border-slate-200 px-5 py-3 text-base font-semibold text-slate-800 dark:border-slate-800 dark:text-slate-100">Confirm Patient</div>
+            <div className="px-5 py-4 text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300">{confirmPatient.summary}</div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
+              <button onClick={() => { if (confirmPatient) skipLookupKeyRef.current = confirmPatient.key; setConfirmPatient(null); setTimeout(() => { if (focusAfterConfirm === 'phone') phoneRef.current?.focus(); else if (focusAfterConfirm === 'name') nameRef.current?.focus(); setFocusAfterConfirm(null) }, 0) }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:text-slate-300">Cancel</button>
               <button onClick={() => {
                 const p = confirmPatient.patient
                 try {
@@ -912,16 +1067,16 @@ export default function Hospital_TokenGenerator() {
                     cnic: p.cnicNormalized || prev.cnic,
                   }))
                 } finally { if (confirmPatient) skipLookupKeyRef.current = confirmPatient.key; setConfirmPatient(null) }
-              }} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
+              }} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white dark:bg-violet-600">Apply</button>
             </div>
           </div>
         </div>
       )}
       {showPhonePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="border-b border-slate-200 px-5 py-3 text-base font-semibold text-slate-800">Select Patient (Phone: {form.phone})</div>
-            <div className="max-h-96 overflow-y-auto p-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-lg rounded-xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-slate-900 dark:ring-white/10">
+            <div className="border-b border-slate-200 px-5 py-3 text-base font-semibold text-slate-800 dark:border-slate-800 dark:text-slate-100">Select Patient (Phone: {form.phone})</div>
+            <div className="max-h-96 overflow-y-auto p-2 dark:bg-slate-900">
               {phonePatients.map((p, idx) => (
                 <button key={p._id || idx} onClick={() => {
                   setForm(prev => ({
@@ -938,20 +1093,20 @@ export default function Hospital_TokenGenerator() {
                   }))
                   setShowPhonePicker(false)
                   showToast('success', 'Patient selected')
-                }} className="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50">
-                  <div className="text-sm font-medium text-slate-800">{p.fullName || 'Unnamed'}</div>
-                  <div className="text-xs text-slate-500">{p.mrn || '-'} • {p.phoneNormalized || ''}</div>
-                  {p.address && <div className="text-[11px] text-slate-400">{p.address}</div>}
+                }} className="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800">
+                  <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.fullName || 'Unnamed'}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{p.mrn || '-'} • {p.phoneNormalized || ''}</div>
+                  {p.address && <div className="text-[11px] text-slate-400 dark:text-slate-500">{p.address}</div>}
                 </button>
               ))}
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button onClick={() => { setShowPhonePicker(false); showToast('success', 'You can create a new patient under this phone') }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
+              <button onClick={() => { setShowPhonePicker(false); showToast('success', 'You can create a new patient under this phone') }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:text-slate-300">Cancel</button>
               <button onClick={() => {
                 // Create new patient under this phone number
                 clearPatientFieldsKeepPhone()
                 setShowPhonePicker(false)
-              }} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white">Create New Patient</button>
+              }} className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white dark:bg-violet-600">Create New Patient</button>
             </div>
           </div>
         </div>
@@ -961,6 +1116,7 @@ export default function Hospital_TokenGenerator() {
           {toast.message}
         </div>
       )}
+      </div>
     </div>
   )
 }

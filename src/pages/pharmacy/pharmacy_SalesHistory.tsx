@@ -8,6 +8,7 @@ import SuggestField from '../../components/SuggestField'
   datetime: string // ISO string
   billNo: string
   customer: string
+  phone: string
   medicines: string
   qtyEach: string
   qty: number
@@ -24,6 +25,7 @@ function formatDateTime(s: string) {
 export default function Pharmacy_SalesHistory() {
   const [medicine, setMedicine] = useState('')
   const [bill, setBill] = useState('')
+  const [phone, setPhone] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [user, setUser] = useState('')
@@ -41,7 +43,7 @@ export default function Pharmacy_SalesHistory() {
     let mounted = true
     const load = async () => {
       try {
-        const res: any = await pharmacyApi.listSales({ bill: bill || undefined, medicine: medicine || undefined, user: user || undefined, from: from || undefined, to: to || undefined, page, limit })
+        const res: any = await pharmacyApi.listSales({ bill: bill || undefined, medicine: medicine || undefined, phone: phone || undefined, user: user || undefined, from: from || undefined, to: to || undefined, page, limit })
         if (!mounted) return
         const items = res.items || []
         setRawSales(items)
@@ -54,6 +56,7 @@ export default function Pharmacy_SalesHistory() {
             datetime: s.datetime,
             billNo: s.billNo,
             customer: s.customer || 'Walk-in',
+            phone: s.customerPhone || '',
             medicines: meds.join(', '),
             qtyEach: qtyEach.join(', '),
             qty: qtySum,
@@ -71,7 +74,7 @@ export default function Pharmacy_SalesHistory() {
     const handler = () => load()
     try { window.addEventListener('pharmacy:sale', handler as any) } catch {}
     return ()=>{ mounted = false; try { window.removeEventListener('pharmacy:sale', handler as any) } catch {} }
-  }, [bill, medicine, user, from, to, page, limit])
+  }, [bill, medicine, phone, user, from, to, page, limit])
 
   // Load pharmacy users for the User autocomplete filter
   useEffect(() => {
@@ -94,10 +97,10 @@ export default function Pharmacy_SalesHistory() {
       const s = String(v ?? '')
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
     }
-    const header = ['Date/Time','Bill No','Customer','Medicines','Qty (each)','Qty','Amount','User','Payment']
+    const header = ['Date/Time','Bill No','Customer','Phone','Medicines','Qty (each)','Qty','Amount','User','Payment']
       .map(escape).join(',')
     const lines = rows.map(r => [
-      formatDateTime(r.datetime), r.billNo, r.customer, r.medicines, r.qtyEach, r.qty, r.amount.toFixed(2), r.user || '', r.payment
+      formatDateTime(r.datetime), r.billNo, r.customer, r.phone, r.medicines, r.qtyEach, r.qty, r.amount.toFixed(2), r.user || '', r.payment
     ].map(escape).join(',')).join('\n')
     const csv = header + '\n' + lines
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -127,15 +130,16 @@ export default function Pharmacy_SalesHistory() {
     const pageH = doc.internal.pageSize.getHeight()
     doc.setFont('courier', 'normal')
     const cols = [
-      { key: 'datetime', title: 'Date/Time', width: 40 },
-      { key: 'billNo', title: 'Bill No', width: 24 },
-      { key: 'customer', title: 'Customer', width: 28 },
-      { key: 'medicines', title: 'Medicines', width: 90 },
-      { key: 'qtyEach', title: 'Qty (each)', width: 24 },
+      { key: 'datetime', title: 'Date/Time', width: 36 },
+      { key: 'billNo', title: 'Bill No', width: 22 },
+      { key: 'customer', title: 'Customer', width: 24 },
+      { key: 'phone', title: 'Phone', width: 22 },
+      { key: 'medicines', title: 'Medicines', width: 80 },
+      { key: 'qtyEach', title: 'Qty (each)', width: 22 },
       { key: 'qty', title: 'Qty', width: 12 },
-      { key: 'amount', title: 'Amount', width: 20 },
-      { key: 'user', title: 'User', width: 22 },
-      { key: 'payment', title: 'Payment', width: 15 },
+      { key: 'amount', title: 'Amount', width: 18 },
+      { key: 'user', title: 'User', width: 20 },
+      { key: 'payment', title: 'Payment', width: 14 },
     ] as const
     const drawHeader = (y: number) => {
       doc.setFontSize(12)
@@ -153,7 +157,7 @@ export default function Pharmacy_SalesHistory() {
     doc.setFontSize(8)
     for (const r of rows) {
       const data = [
-        formatDateTime(r.datetime), r.billNo, r.customer, r.medicines, r.qtyEach, String(r.qty), `Rs ${r.amount.toFixed(2)}`, r.user || '', r.payment,
+        formatDateTime(r.datetime), r.billNo, r.customer, r.phone, r.medicines, r.qtyEach, String(r.qty), `Rs ${r.amount.toFixed(2)}`, r.user || '', r.payment,
       ]
       const lines = data.map((v, i) => (doc as any).splitTextToSize(v, cols[i].width - 2)) as string[][]
       const maxLines = Math.max(1, ...lines.map(a => a.length))
@@ -182,7 +186,7 @@ export default function Pharmacy_SalesHistory() {
         <div className="text-xl font-bold text-slate-800">Sales History</div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-6">
             <div>
               <label className="mb-1 block text-sm text-slate-700">Medicine name</label>
               <input value={medicine} onChange={e=>setMedicine(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g., Paracetamol" />
@@ -190,6 +194,10 @@ export default function Pharmacy_SalesHistory() {
             <div>
               <label className="mb-1 block text-sm text-slate-700">Bill/Invoice #</label>
               <input value={bill} onChange={e=>setBill(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="B-YYYYMM-###" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-700">Phone</label>
+              <input value={phone} onChange={e=>setPhone(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Customer phone" />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-700">From</label>
@@ -237,6 +245,7 @@ export default function Pharmacy_SalesHistory() {
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Date/Time</th>
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Bill No</th>
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Customer</th>
+                  <th className="whitespace-nowrap px-4 py-2 font-medium">Phone</th>
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Medicines</th>
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Qty (each)</th>
                   <th className="whitespace-nowrap px-4 py-2 font-medium">Qty</th>
@@ -252,6 +261,7 @@ export default function Pharmacy_SalesHistory() {
                   <td className="px-4 py-2">{formatDateTime(r.datetime)}</td>
                   <td className="px-4 py-2">{r.billNo}</td>
                   <td className="px-4 py-2">{r.customer}</td>
+                  <td className="px-4 py-2">{r.phone || '-'}</td>
                   <td className="px-4 py-2">{r.medicines}</td>
                   <td className="px-4 py-2">{r.qtyEach}</td>
                   <td className="px-4 py-2">{r.qty}</td>
@@ -263,7 +273,7 @@ export default function Pharmacy_SalesHistory() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">No results</td>
+                  <td colSpan={11} className="px-4 py-12 text-center text-slate-500">No results</td>
                 </tr>
               )}
             </tbody>
@@ -291,6 +301,7 @@ export default function Pharmacy_SalesHistory() {
         lines={(receiptSale?.lines || []).map((l:any)=> ({ name: l.name, qty: l.qty, price: l.unitPrice }))}
         discountPct={receiptSale?.discountPct || 0}
         customer={receiptSale?.customer}
+        customerPhone={receiptSale?.customerPhone}
         datetime={receiptSale?.datetime}
       />
     </>

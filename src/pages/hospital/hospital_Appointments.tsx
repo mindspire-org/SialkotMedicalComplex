@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { hospitalApi } from '../../utils/api'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function todayIso(){ return new Date().toISOString().slice(0,10) }
 
@@ -39,6 +40,7 @@ export default function Hospital_Appointments(){
   // Edit modal
   const [editOpen, setEditOpen] = useState(false)
   const [editRow, setEditRow] = useState<any | null>(null)
+  const [confirmDeleteAppt, setConfirmDeleteAppt] = useState<any | null>(null)
   const [editForm, setEditForm] = useState({
     doctorId: '',
     scheduleId: '',
@@ -129,6 +131,11 @@ export default function Hospital_Appointments(){
 
   useEffect(()=>{ if (doctorId && dateIso) loadSchedules() }, [doctorId, dateIso])
   useEffect(()=>{ loadApptTable() }, [doctorId, dateIso, tblPage, tblLimit])
+
+  const selectedSchedule = useMemo(
+    () => schedules.find(s => String(s._id) === String(selectedScheduleId)),
+    [schedules, selectedScheduleId]
+  )
 
 
   async function loadSchedules(){
@@ -246,8 +253,8 @@ export default function Hospital_Appointments(){
 
   function onPhoneChange(e: React.ChangeEvent<HTMLInputElement>){
     const v = e.target.value
-    setNewPat(prev=>({ ...prev, phone: v }))
-    const digits = (v||'').replace(/\D+/g,'')
+    const digits = (v||'').replace(/\D+/g,'').slice(0, 11)
+    setNewPat(prev=>({ ...prev, phone: digits }))
     if ((window as any)._apptPhoneSuggestDeb) clearTimeout((window as any)._apptPhoneSuggestDeb)
     if (digits.length >= 3){
       ;(window as any)._apptPhoneSuggestDeb = setTimeout(()=> runPhoneSuggestLookup(digits), 250)
@@ -288,6 +295,7 @@ export default function Hospital_Appointments(){
     try{
       const payload: any = {
         doctorId,
+        departmentId: String(selectedSchedule?.departmentId || '') || undefined,
         scheduleId: selectedScheduleId,
         slotNo: selectedSlotNo,
         notes: newPat.notes || undefined,
@@ -323,6 +331,25 @@ export default function Hospital_Appointments(){
       if (tok && tok.tokenNo){ setInfo(`Converted to Token #${tok.tokenNo}`) }
       await loadSchedules(); await loadApptTable()
     }catch(e:any){ setError(e?.message||'Failed to convert to token') }
+  }
+
+  async function removeAppointment(appt: any){
+    if (!appt) return
+    if (appt.tokenId){ setError('Converted appointment cannot be deleted'); return }
+    setConfirmDeleteAppt(appt)
+  }
+  async function doConfirmDeleteAppt(){
+    const appt = confirmDeleteAppt
+    setConfirmDeleteAppt(null)
+    if (!appt) return
+    setError(null); setInfo(null)
+    try{
+      await hospitalApi.deleteAppointment(String(appt._id))
+      setInfo('Appointment deleted')
+      await loadSchedules(); await loadApptTable()
+    }catch(e:any){
+      setError(e?.message || 'Failed to delete appointment')
+    }
   }
 
   return (
@@ -412,6 +439,7 @@ export default function Hospital_Appointments(){
                   placeholder="Type phone to search"
                   value={newPat.phone}
                   onChange={onPhoneChange}
+                  maxLength={11}
                   onFocus={()=>{ if (phoneSuggestItems.length>0) setPhoneSuggestOpen(true) }}
                   ref={phoneRef}
                 />
@@ -507,6 +535,9 @@ export default function Hospital_Appointments(){
                       {!appt.tokenId && (
                         <button onClick={()=>convert(String(appt._id))} className="rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs text-violet-700">Convert to Token</button>
                       )}
+                      {!appt.tokenId && (
+                        <button onClick={()=>removeAppointment(appt)} className="rounded-md border border-rose-300 bg-white px-2 py-1 text-xs text-rose-700">Delete</button>
+                      )}
                       {appt.status !== 'confirmed' && appt.status !== 'checked-in' && appt.status !== 'cancelled' && (
                         <button onClick={()=>updateStatus(String(appt._id), 'confirmed')} className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">Confirm</button>
                       )}
@@ -592,7 +623,13 @@ export default function Hospital_Appointments(){
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">Phone</label>
-                  <input value={editForm.phone} disabled={!!editRow.patientId} onChange={e=>editUpdate('phone', e.target.value)} className={`w-full rounded-md border px-3 py-2 ${editRow.patientId ? 'border-slate-200 bg-slate-50 text-slate-600' : 'border-slate-300'}`} />
+                  <input
+                    value={editForm.phone}
+                    disabled={!!editRow.patientId}
+                    maxLength={11}
+                    onChange={e=>editUpdate('phone', String(e.target.value||'').replace(/\D+/g,'').slice(0, 11))}
+                    className={`w-full rounded-md border px-3 py-2 ${editRow.patientId ? 'border-slate-200 bg-slate-50 text-slate-600' : 'border-slate-300'}`}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">Age</label>
@@ -620,7 +657,14 @@ export default function Hospital_Appointments(){
           </div>
         </div>
       )}
-
+      <ConfirmDialog
+        open={!!confirmDeleteAppt}
+        title="Confirm Delete"
+        message="Delete this appointment?"
+        confirmText="Delete"
+        onCancel={()=>setConfirmDeleteAppt(null)}
+        onConfirm={doConfirmDeleteAppt}
+      />
     </div>
   )
 }

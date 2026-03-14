@@ -10,14 +10,15 @@ import { AuditLog } from '../models/AuditLog'
 
 export async function list(req: Request, res: Response){
   const parsed = returnQuerySchema.safeParse(req.query)
-  const { type, from, to, party, reference, search, page, limit } = parsed.success ? parsed.data as any : {}
+  const { type, from, to, party, phone, reference, search, page, limit } = parsed.success ? parsed.data as any : {}
   const filter: any = {}
   if (type) filter.type = type
   if (party) filter.party = new RegExp(party, 'i')
+  if (phone) filter.phone = new RegExp(phone, 'i')
   if (reference) filter.reference = new RegExp(reference, 'i')
   if (search) {
     const rx = new RegExp(search, 'i')
-    filter.$or = [ { party: rx }, { reference: rx } ]
+    filter.$or = [ { party: rx }, { reference: rx }, { phone: rx } ]
   }
   if (from || to) {
     filter.datetime = {}
@@ -120,6 +121,7 @@ export async function create(req: Request, res: Response){
       datetime: data.datetime,
       reference: sale.billNo,
       party: sale.customer || data.party,
+      phone: data.phone || sale.customerPhone || '',
       items,
       total: Number(total.toFixed(2)),
       lines: computedReturnLines,

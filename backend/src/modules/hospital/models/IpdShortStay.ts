@@ -1,7 +1,8 @@
 import { Schema, model, models } from 'mongoose'
 
 const IpdShortStaySchema = new Schema({
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
+  encounterType: { type: String, enum: ['IPD', 'EMERGENCY'], default: 'IPD', index: true },
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true },
   doctorId: { type: Schema.Types.ObjectId, ref: 'Hospital_Doctor' },
   departmentId: { type: Schema.Types.ObjectId, ref: 'Hospital_Department' },
@@ -17,6 +18,7 @@ IpdShortStaySchema.index({ encounterId: 1 }, { unique: true })
 export type HospitalIpdShortStayDoc = {
   _id: string
   encounterId: string
+  encounterType?: 'IPD' | 'EMERGENCY'
   patientId: string
   doctorId?: string
   departmentId?: string

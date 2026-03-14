@@ -5,6 +5,8 @@ const DoctorSchema = new Schema({
   departmentIds: [{ type: Schema.Types.ObjectId, ref: 'Hospital_Department' }],
   primaryDepartmentId: { type: Schema.Types.ObjectId, ref: 'Hospital_Department' },
   opdBaseFee: { type: Number },
+  opdPublicFee: { type: Number },
+  opdPrivateFee: { type: Number },
   opdFollowupFee: { type: Number },
   followupWindowDays: { type: Number },
   username: { type: String },
@@ -13,7 +15,6 @@ const DoctorSchema = new Schema({
   qualification: { type: String },
   cnic: { type: String },
   pmdcNo: { type: String },
-  shares: { type: Number }, // percentage
   active: { type: Boolean, default: true },
 }, { timestamps: true })
 
@@ -23,6 +24,8 @@ export type HospitalDoctorDoc = {
   departmentIds?: string[]
   primaryDepartmentId?: string
   opdBaseFee?: number
+  opdPublicFee?: number
+  opdPrivateFee?: number
   opdFollowupFee?: number
   followupWindowDays?: number
   username?: string
@@ -31,7 +34,6 @@ export type HospitalDoctorDoc = {
   qualification?: string
   cnic?: string
   pmdcNo?: string
-  shares?: number
   active: boolean
 }
 

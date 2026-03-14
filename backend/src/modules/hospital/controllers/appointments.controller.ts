@@ -247,8 +247,13 @@ export async function convertToToken(req: Request, res: Response){
     // Load schedule, doctor, department
     const sched: any = await HospitalDoctorSchedule.findById(appt.scheduleId).lean()
     if (!sched) return res.status(400).json({ error: 'Invalid schedule' })
-    const doctor = appt.doctorId ? await HospitalDoctor.findById(appt.doctorId).lean() : null
-    const departmentId = String(appt.departmentId || sched.departmentId || '')
+    const doctor: any = appt.doctorId ? await HospitalDoctor.findById(appt.doctorId).lean() : null
+    const depCandidate =
+      appt.departmentId ||
+      sched.departmentId ||
+      doctor?.primaryDepartmentId ||
+      (Array.isArray(doctor?.departmentIds) ? doctor.departmentIds[0] : undefined)
+    const departmentId = String(depCandidate || '')
     if (!departmentId) return res.status(400).json({ error: 'Department not set on schedule/appointment' })
     const department = await HospitalDepartment.findById(departmentId).lean()
     if (!department) return res.status(400).json({ error: 'Invalid departmentId' })

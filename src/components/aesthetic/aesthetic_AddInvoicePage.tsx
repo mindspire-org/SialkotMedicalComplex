@@ -347,7 +347,7 @@ export default function Pharmacy_AddInvoicePage() {
   const netTotal = taxableBase + lineTaxesTotal + invoiceTaxesTotal
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="min-h-dvh bg-transparent">
       {toast && (
         <div className="fixed right-4 top-4 z-[60] w-[min(92vw,420px)]">
           <div
@@ -905,7 +905,7 @@ export default function Pharmacy_AddInvoicePage() {
             </div>
 
             {/* Totals Summary */}
-            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl shadow-sm border border-emerald-200 dark:from-emerald-900/20 dark:to-emerald-900/30 dark:border-emerald-800">
+            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl shadow-sm border border-emerald-200 dark:from-slate-900/40 dark:to-slate-900/20 dark:border-slate-700">
               <div className="px-6 py-4">
                 <h2 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200">Invoice Summary</h2>
               </div>

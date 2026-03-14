@@ -20,6 +20,7 @@ import * as Notifications from '../controllers/notifications.controller'
 import * as SidebarPerms from '../controllers/sidebarPermission.controller'
 import * as HoldSales from '../controllers/hold_sales.controller'
 import * as Companies from '../controllers/companies.controller'
+import * as HoldPurchaseInvoices from '../controllers/hold_purchase_invoices.controller'
 
 const r = Router()
 
@@ -30,6 +31,15 @@ r.put('/suppliers/:id', Suppliers.update)
 r.delete('/suppliers/:id', Suppliers.remove)
 r.post('/suppliers/:id/payment', Suppliers.recordPayment)
 r.get('/suppliers/:id/purchases', Suppliers.purchases)
+
+// Purchase Orders
+import * as PurchaseOrders from '../controllers/purchase_orders.controller'
+r.get('/purchase-orders', PurchaseOrders.list)
+r.get('/purchase-orders/:id', PurchaseOrders.getOne)
+r.post('/purchase-orders', PurchaseOrders.create)
+r.put('/purchase-orders/:id', PurchaseOrders.update)
+r.patch('/purchase-orders/:id/status', PurchaseOrders.updateStatus)
+r.delete('/purchase-orders/:id', PurchaseOrders.remove)
 // Supplier-Companies
 r.get('/suppliers/:id/companies', Companies.listForSupplier)
 r.post('/suppliers/:id/companies', Companies.assignToSupplier)
@@ -95,6 +105,12 @@ r.get('/hold-sales/:id', HoldSales.getOne)
 r.post('/hold-sales', HoldSales.create)
 r.delete('/hold-sales/:id', HoldSales.remove)
 
+// Hold Purchase Invoices (server-side held purchase invoices)
+r.get('/hold-purchase-invoices', HoldPurchaseInvoices.list)
+r.get('/hold-purchase-invoices/:id', HoldPurchaseInvoices.getOne)
+r.post('/hold-purchase-invoices', HoldPurchaseInvoices.create)
+r.delete('/hold-purchase-invoices/:id', HoldPurchaseInvoices.remove)
+
 // Purchases
 r.get('/purchases', Purchases.list)
 r.post('/purchases', Purchases.create)
@@ -135,6 +151,7 @@ r.post('/sidebar-permissions/:role/reset', SidebarPerms.resetToDefaults)
 // Purchase Drafts (Pending Review)
 r.get('/purchase-drafts', Drafts.list)
 r.get('/purchase-drafts/lines', Drafts.listLines)
+r.get('/purchase-drafts/next-invoice-number', Drafts.getNextInvoiceNumber)
 r.post('/purchase-drafts', Drafts.create)
 r.get('/purchase-drafts/:id', Drafts.getOne)
 r.put('/purchase-drafts/:id', Drafts.update)

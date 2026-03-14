@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdBirthCertificateSchema = new Schema({
   // Make encounter optional to allow standalone certificates
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter' },
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient' },
   doctorId: { type: Schema.Types.ObjectId, ref: 'Hospital_Doctor' },
   departmentId: { type: Schema.Types.ObjectId, ref: 'Hospital_Department' },

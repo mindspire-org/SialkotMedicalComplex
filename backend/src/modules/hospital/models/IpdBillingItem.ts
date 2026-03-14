@@ -2,12 +2,13 @@ import { Schema, model, models } from 'mongoose'
 
 const IpdBillingItemSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true, index: true },
+  encounterId: { type: Schema.Types.ObjectId, ref: 'Hospital_Encounter', required: true },
   type: { type: String, enum: ['bed','procedure','medication','service'], required: true, index: true },
   description: { type: String, required: true },
   qty: { type: Number, default: 1 },
   unitPrice: { type: Number, default: 0 },
   amount: { type: Number, default: 0 },
+  paidAmount: { type: Number, default: 0 },
   date: { type: Date, default: Date.now, index: true },
   refId: { type: String },
   billedBy: { type: String },
@@ -24,6 +25,7 @@ export type HospitalIpdBillingItemDoc = {
   qty: number
   unitPrice: number
   amount: number
+  paidAmount?: number
   date: Date
   refId?: string
   billedBy?: string

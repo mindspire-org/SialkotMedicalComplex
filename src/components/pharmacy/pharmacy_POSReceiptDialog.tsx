@@ -11,12 +11,13 @@ type Props = {
   discountPct?: number
   lineDiscountRs?: number
   customer?: string
+  customerPhone?: string
   autoPrint?: boolean
   datetime?: string
   fbr?: { status?: string; qrCode?: string; fbrInvoiceNo?: string; mode?: string; error?: string } | null
 }
 
-export default function Pharmacy_POSReceiptDialog({ open, onClose, receiptNo, method, lines, discountPct = 0, customer, autoPrint, datetime, fbr }: Props) {
+export default function Pharmacy_POSReceiptDialog({ open, onClose, receiptNo, method, lines, discountPct = 0, customer, customerPhone, autoPrint, datetime, fbr }: Props) {
   if (!open) return null
 
   const withLineDiscount = useMemo(() => {
@@ -107,6 +108,7 @@ export default function Pharmacy_POSReceiptDialog({ open, onClose, receiptNo, me
               <div className="mt-2 text-xs text-slate-700 print:text-black">
                 <div>Date : {(datetime ? new Date(datetime) : new Date()).toLocaleString()}</div>
                 <div>Walk-in{customer ? ` - ${customer}` : ''}</div>
+                {customerPhone ? <div>Phone : {customerPhone}</div> : null}
                 <div>Bill No: {receiptNo}</div>
                 <div>Payment Mode: {method}</div>
               </div>
@@ -149,21 +151,29 @@ export default function Pharmacy_POSReceiptDialog({ open, onClose, receiptNo, me
               </div>
 
               <hr className="my-3 border-dashed" />
-              <div className="text-xs print:text-black">
-                <div className="text-center font-medium">FBR</div>
-                <div className="mt-1 text-center">
-                  {String(fbr?.status || '').toUpperCase() === 'SUCCESS' && fbr?.qrCode ? (
-                    <img src={fbr.qrCode} alt="FBR QR" className="mx-auto h-24 w-24 object-contain" />
-                  ) : (
-                    <div className="font-semibold text-rose-600 print:text-black">FBR FAILED</div>
-                  )}
-                </div>
-                <div className="mt-1 space-y-0.5 text-[11px] text-slate-700 print:text-black">
-                  <div>FBR No: {fbr?.fbrInvoiceNo || '—'}</div>
-                  <div>Mode: {fbr?.mode || '—'}</div>
-                  <div>Error: {fbr?.error || '—'}</div>
-                </div>
-              </div>
+              {(() => {
+                const st = String(fbr?.status || '').toUpperCase().trim()
+                const showFbr = Boolean(fbr) && Boolean(st)
+                const isSuccess = st === 'SUCCESS' && Boolean(fbr?.qrCode)
+                if (!showFbr) return null
+                return (
+                  <div className="text-xs print:text-black">
+                    <div className="text-center font-medium">FBR</div>
+                    <div className="mt-1 text-center">
+                      {isSuccess ? (
+                        <img src={fbr!.qrCode} alt="FBR QR" className="mx-auto h-24 w-24 object-contain" />
+                      ) : (
+                        <div className="font-semibold text-rose-600 print:text-black">FBR FAILED</div>
+                      )}
+                    </div>
+                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-700 print:text-black">
+                      <div>FBR No: {fbr?.fbrInvoiceNo || '—'}</div>
+                      <div>Mode: {fbr?.mode || '—'}</div>
+                      <div>Error: {fbr?.error || '—'}</div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               <hr className="my-3 border-dashed" />
               <div className="text-center text-xs text-slate-600 print:text-black">{info.footer || 'Thank you for your purchase!'}</div>

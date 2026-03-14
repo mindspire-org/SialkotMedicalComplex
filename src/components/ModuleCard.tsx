@@ -13,7 +13,7 @@ export default function ModuleCard({
   title: string
   description: string
   icon: ReactNode
-  tone?: 'sky' | 'emerald' | 'violet' | 'amber' | 'teal'
+  tone?: 'sky' | 'emerald' | 'violet' | 'amber' | 'teal' | 'slate'
 }) {
   const toneMap: Record<string, string> = {
     sky: 'bg-sky-50 border-sky-100',
@@ -21,6 +21,7 @@ export default function ModuleCard({
     violet: 'bg-violet-50 border-violet-100',
     amber: 'bg-amber-50 border-amber-100',
     teal: 'bg-teal-50 border-teal-100',
+    slate: 'bg-slate-50 border-slate-100',
   }
 
   const cardRef = useRef<HTMLDivElement>(null)
@@ -55,7 +56,7 @@ export default function ModuleCard({
       ref={cardRef}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
-      className="card home-featured-card relative transform-gpu transition-transform duration-300 will-change-transform"
+      className="card home-featured-card relative transform-gpu transition-transform duration-300 will-change-transform dark:bg-slate-900 dark:border-slate-700 hover:shadow-md dark:hover:shadow-none"
       style={{ transformStyle: 'preserve-3d' }}
     >
       <div ref={glowRef} className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(420px circle at 50% 50%, rgba(14,165,233,0.20), transparent 45%)' }} />
@@ -64,12 +65,12 @@ export default function ModuleCard({
           {icon}
         </div>
         <div className="flex-1" style={{ transform: 'translateZ(16px)' }}>
-          <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
-          <p className="mt-1 text-slate-600">
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <p className="mt-1 text-slate-600 dark:text-slate-300">
             {description}
           </p>
           <div className="mt-4">
-            <Link to={to} className="btn text-sm transition-transform duration-200 hover:translate-x-0.5">
+            <Link to={to} className="btn text-sm transition-transform duration-200 hover:translate-x-0.5 dark:ring-1 dark:ring-white/10">
               Open →
             </Link>
           </div>

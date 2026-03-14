@@ -105,7 +105,7 @@ export async function listBeds(req: Request, res: Response){
   if (q.floorId) criteria.floorId = q.floorId
   if (q.locationType) criteria.locationType = q.locationType
   if (q.locationId) criteria.locationId = q.locationId
-  if (q.status) criteria.status = q.status
+  const requestedStatus = q.status ? String(q.status) : ''
   const [floors, rooms, wards, rows] = await Promise.all([
     HospitalFloor.find().select('name').lean(),
     HospitalRoom.find().select('name').lean(),
@@ -123,7 +123,7 @@ export async function listBeds(req: Request, res: Response){
   const floorMap = new Map<string, string>((floors || []).map((f: any) => [String(f._id), String(f.name || '')]))
   const roomMap = new Map<string, string>((rooms || []).map((r: any) => [String(r._id), String(r.name || '')]))
   const wardMap = new Map<string, string>((wards || []).map((w: any) => [String(w._id), String(w.name || '')]))
-  const items = rows.map((b: any) => {
+  const itemsAll = rows.map((b: any) => {
     const enc = b.occupiedByEncounterId
     const p = enc?.patientId
     const statusNormalized = (b.status === 'occupied' && (!enc || enc.status !== 'admitted' || enc.type !== 'IPD')) ? 'available' : b.status
@@ -141,6 +141,11 @@ export async function listBeds(req: Request, res: Response){
       locationName,
     }
   })
+
+  const items = requestedStatus
+    ? itemsAll.filter((b: any) => String(b.status) === requestedStatus)
+    : itemsAll
+
   res.json({ beds: items })
 }
 

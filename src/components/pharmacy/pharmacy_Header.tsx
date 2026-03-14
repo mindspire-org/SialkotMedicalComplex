@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Bell } from 'lucide-react'
+import { LogOut, Menu, Bell, Sun, Moon } from 'lucide-react'
 import { pharmacyApi } from '../../utils/api'
 import { useEffect, useState } from 'react'
 import Pharmacy_NotificationPopup from './pharmacy_NotificationPopup'
@@ -151,7 +151,7 @@ export default function Pharmacy_Header({ onToggleSidebar, onToggleTheme, theme,
               title="Toggle theme"
               aria-label="Toggle theme"
             >
-              <span className="text-xs font-semibold">T</span>
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
           ) : null}
 
@@ -163,6 +163,7 @@ export default function Pharmacy_Header({ onToggleSidebar, onToggleTheme, theme,
                 className={chipBtnCls}
                 title="Toggle theme"
               >
+                {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 <span className="text-sm font-medium">Theme</span>
               </button>
             ) : null}

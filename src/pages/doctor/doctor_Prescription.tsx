@@ -9,6 +9,7 @@ import PrescriptionPrint from '../../components/doctor/PrescriptionPrint'
 import SuggestField from '../../components/SuggestField'
 import PrescriptionVitals from '../../components/doctor/PrescriptionVitals'
 import PrescriptionDiagnosticOrders from '../../components/doctor/PrescriptionDiagnosticOrders'
+import Toast, { type ToastState } from '../../components/ui/Toast'
 
 type DoctorSession = { id: string; name: string; username: string }
 
@@ -73,6 +74,7 @@ export default function Doctor_Prescription() {
   const [pat] = useState<{ address?: string; phone?: string; fatherName?: string; gender?: string; age?: string } | null>(null)
   const [doctorInfo, setDoctorInfo] = useState<{ name?: string; specialization?: string; phone?: string; qualification?: string; departmentName?: string } | null>(null)
   const [openReferral, setOpenReferral] = useState(false)
+  const [toast, setToast] = useState<ToastState>(null)
   const referralFormRef = useRef<any>(null)
   const vitalsRef = useRef<any>(null)
   const diagRef = useRef<any>(null)
@@ -478,7 +480,7 @@ export default function Doctor_Prescription() {
     e.preventDefault()
     const sel = myPatients.find(t => `${t.id}` === form.patientKey)
 
-    if (!doc || !sel || !sel.encounterId) { alert('Select a patient first'); return }
+    if (!doc || !sel || !sel.encounterId) { setToast({ type: 'error', message: 'Select a patient first' }); return }
     const items = (form.meds || [])
       .filter(m => (m.name||'').trim())
       .map(m => ({
@@ -489,10 +491,10 @@ export default function Doctor_Prescription() {
         notes: (m.route || m.instruction) ? [m.route?`Route: ${m.route}`:null, m.instruction?`Instruction: ${m.instruction}`:null].filter(Boolean).join('; ') : undefined,
       }))
     if (rxMode === 'manual') {
-      if (manualAttachmentError) { alert(manualAttachmentError); return }
-      if (!manualAttachment?.dataUrl) { alert('Attach prescription PDF/image for Manual mode'); return }
+      if (manualAttachmentError) { setToast({ type: 'error', message: manualAttachmentError }); return }
+      if (!manualAttachment?.dataUrl) { setToast({ type: 'error', message: 'Attach prescription PDF/image for Manual mode' }); return }
     } else {
-      if (!items.length) { alert('Add at least one medicine'); return }
+      if (!items.length) { setToast({ type: 'error', message: 'Add at least one medicine' }); return }
     }
     const labTests = form.labTestsText.split(/\n|,/).map(s=>s.trim()).filter(Boolean)
     try {
@@ -569,14 +571,14 @@ export default function Doctor_Prescription() {
       try { diagRef.current?.setDisplay?.({ testsText: '', notes: '' }) } catch {}
       setTimeout(()=>setSaved(false), 2000)
     } catch (err: any) {
-      alert(err?.message || 'Failed to save prescription')
+      setToast({ type: 'error', message: err?.message || 'Failed to save prescription' })
     }
   }
 
   // Print helpers: build a PDF and open a preview window/tab
   async function openPrint(){
     const sel = myPatients.find(t => `${t.id}` === form.patientKey)
-    if (!sel) { alert('Select a patient first'); return }
+    if (!sel) { setToast({ type: 'error', message: 'Select a patient first' }); return }
     // Load settings fresh for header
     let s: any = settings
     try { s = await hospitalApi.getSettings() as any } catch {}
@@ -687,15 +689,15 @@ export default function Doctor_Prescription() {
 
   async function referToDiagnosticQuick(){
     const sel = myPatients.find(t => `${t.id}` === form.patientKey)
-    if (!doc?.id || !sel?.encounterId) { alert('Select a patient first'); return }
+    if (!doc?.id || !sel?.encounterId) { setToast({ type: 'error', message: 'Select a patient first' }); return }
     try{
       const d = diagRef.current?.getData?.() || {}
       const tests = Array.isArray(d.tests) && d.tests.length ? d.tests : undefined
       const notes = d.notes && String(d.notes).trim() ? String(d.notes).trim() : undefined
       await hospitalApi.createReferral({ type: 'diagnostic', encounterId: sel.encounterId, doctorId: doc.id, tests, notes })
-      alert('Diagnostic referral created')
+      setToast({ type: 'success', message: 'Diagnostic referral created' })
     } catch(e: any){
-      alert(e?.message || 'Failed to create diagnostic referral')
+      setToast({ type: 'error', message: e?.message || 'Failed to create diagnostic referral' })
     }
   }
 
@@ -769,10 +771,10 @@ export default function Doctor_Prescription() {
       const s: any = await hospitalApi.getSettings()
       const settingsNorm = { name: s?.name || 'Hospital', address: s?.address || '', phone: s?.phone || '', logoDataUrl: s?.logoDataUrl || '' }
       const d = referralFormRef.current?.getPreviewData?.()
-      if (!d) { alert('Referral form not ready'); return }
+      if (!d) { setToast({ type: 'error', message: 'Referral form not ready' }); return }
       await previewIpdReferralPdf({ settings: settingsNorm, patient: d.patient, referral: d.referral })
     } catch (e: any) {
-      alert(e?.message || 'Failed to open referral preview')
+      setToast({ type: 'error', message: e?.message || 'Failed to open referral preview' })
     }
   }
 
@@ -1007,6 +1009,7 @@ export default function Doctor_Prescription() {
         advice={form.advice}
         createdAt={new Date()}
       />
+      <Toast toast={toast} onClose={()=>setToast(null)} />
     </div>
   )
 }

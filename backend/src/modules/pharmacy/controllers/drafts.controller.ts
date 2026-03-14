@@ -5,6 +5,51 @@ import { Purchase } from '../models/Purchase'
 import { InventoryItem } from '../models/InventoryItem'
 import { draftCreateSchema, draftQuerySchema } from '../validators/draft'
 import { AuditLog } from '../models/AuditLog'
+import { PharmacyCounter } from '../models/Counter'
+
+// Peek at next invoice number without incrementing (for preview)
+async function peekNextInvoiceNumber(): Promise<string> {
+  const key = 'purchase_invoice'
+  let c: any = await (PharmacyCounter as any).findById(key)
+  if (!c) {
+    // Counter doesn't exist, check existing invoices to determine starting number
+    const docs: any[] = await PurchaseDraft.find({ invoice: { $regex: /^INV_\d+$/i } }).select('invoice').lean()
+    let maxSeq = 0
+    for (const d of docs) {
+      const m = (d.invoice || '').match(/^INV_(\d+)$/i)
+      if (m) {
+        const n = parseInt(m[1], 10)
+        if (n > maxSeq) maxSeq = n
+      }
+    }
+    return `INV_${maxSeq + 1}`
+  }
+  return `INV_${(c.seq || 0) + 1}`
+}
+
+// Generate next invoice number (INV_1, INV_2, etc.) - increments counter
+async function nextInvoiceNumber(): Promise<string> {
+  const key = 'purchase_invoice'
+  let c: any = await (PharmacyCounter as any).findByIdAndUpdate(key, { $inc: { seq: 1 } }, { upsert: true, new: true, setDefaultsOnInsert: true })
+  // If counter was just created, check existing invoices to align
+  if (c && Number(c.seq) === 1) {
+    try {
+      const docs: any[] = await PurchaseDraft.find({ invoice: { $regex: /^INV_\d+$/i } }).select('invoice').lean()
+      let maxSeq = 0
+      for (const d of docs) {
+        const m = (d.invoice || '').match(/^INV_(\d+)$/i)
+        if (m) {
+          const n = parseInt(m[1], 10)
+          if (n > maxSeq) maxSeq = n
+        }
+      }
+      if (maxSeq > 0) {
+        c = await (PharmacyCounter as any).findOneAndUpdate({ _id: key, seq: 1 }, { $set: { seq: maxSeq + 1 } }, { new: true }) || c
+      }
+    } catch {}
+  }
+  return `INV_${c.seq}`
+}
 
 function calcTotals(lines: any[], discount = 0, invoiceTaxes: any[] = []){
   const norm = lines.map(l => ({
@@ -96,6 +141,12 @@ export async function list(req: Request, res: Response){
   res.json({ items })
 }
 
+// Get next auto-increment invoice number (peek without incrementing)
+export async function getNextInvoiceNumber(req: Request, res: Response) {
+  const invoiceNo = await peekNextInvoiceNumber()
+  res.json({ invoiceNo })
+}
+
 // Server-side pagination for flattened draft lines used by Pending Review table
 export async function listLines(req: Request, res: Response){
   const page = Math.max(1, Number(req.query.page || 1))
@@ -154,18 +205,38 @@ export async function listLines(req: Request, res: Response){
 export async function create(req: Request, res: Response){
   const data = draftCreateSchema.parse(req.body)
   const { lines, totals } = calcTotals(data.lines, (data as any).discount || 0, data.invoiceTaxes || [])
-  const doc = await PurchaseDraft.create({
-    date: data.date,
-    invoice: data.invoice,
-    supplierId: data.supplierId,
-    supplierName: data.supplierName,
-    companyId: (data as any).companyId,
-    companyName: (data as any).companyName,
-    invoiceTaxes: data.invoiceTaxes || [],
-    totals,
-    lines,
-  })
-  res.status(201).json(doc)
+  
+  // If invoice number matches auto-generated pattern (INV_x), increment the counter
+  const invoiceMatch = (data.invoice || '').match(/^INV_(\d+)$/i)
+  if (invoiceMatch) {
+    const invoiceNum = parseInt(invoiceMatch[1], 10)
+    const key = 'purchase_invoice'
+    // Update counter to at least this number
+    await (PharmacyCounter as any).findOneAndUpdate(
+      { _id: key },
+      { $max: { seq: invoiceNum } },
+      { upsert: true, new: true }
+    )
+  }
+  
+  // Create separate PurchaseDraft per line item so each can be approved/rejected independently
+  const createdDocs = []
+  for (const line of lines) {
+    const lineTotals = calcTotals([line], (data as any).discount || 0, data.invoiceTaxes || [])
+    const doc = await PurchaseDraft.create({
+      date: data.date,
+      invoice: data.invoice,
+      supplierId: data.supplierId,
+      supplierName: data.supplierName,
+      companyId: (data as any).companyId,
+      companyName: (data as any).companyName,
+      invoiceTaxes: data.invoiceTaxes || [],
+      totals: lineTotals.totals,
+      lines: [line],
+    })
+    createdDocs.push(doc)
+  }
+  res.status(201).json({ created: createdDocs.length, docs: createdDocs })
 }
 
 export async function remove(req: Request, res: Response){

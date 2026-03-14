@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { hospitalApi, api as coreApi } from '../../utils/api'
+import Toast, { type ToastState } from '../ui/Toast'
 
-export default function Hospital_BirthCertificateForm({ encounterId, docId, patient, showPatientHeader = true, onSaved }: { encounterId?: string; docId?: string; patient?: any; showPatientHeader?: boolean; onSaved?: (doc:any)=>void }){
+export default function Hospital_BirthCertificateForm({ encounterId, docId, patient, showPatientHeader = true, onSaved }: { encounterId?: string; docId?: string; patient?: any; showPatientHeader?: boolean; onSaved?: (doc: any) => void }) {
   const [form, setForm] = useState<any>({})
   const [loading, setLoading] = useState(false)
-  const [currentId, setCurrentId] = useState<string|undefined>(docId)
+  const [toast, setToast] = useState<ToastState>(null)
+  const [currentId, setCurrentId] = useState<string | undefined>(docId)
 
+  useEffect(() => { setCurrentId(docId) }, [docId])
   useEffect(()=>{ setCurrentId(docId) }, [docId])
 
   useEffect(()=>{
@@ -119,6 +122,11 @@ export default function Hospital_BirthCertificateForm({ encounterId, docId, pati
         }
       }
       if (saved?.birthCertificate){ if (typeof onSaved === 'function') onSaved(saved.birthCertificate); return saved.birthCertificate }
+      setToast({ type: 'success', message: 'Saved' })
+      return saved?.birthCertificate
+    } catch (e: any) {
+      setToast({ type: 'error', message: e?.message || 'Save failed' })
+      throw e
     } finally { setLoading(false) }
   }
 
@@ -137,6 +145,8 @@ export default function Hospital_BirthCertificateForm({ encounterId, docId, pati
 
   return (
     <div className="space-y-3">
+      <Toast toast={toast} onClose={()=>setToast(null)} />
+      <div className="text-xl font-bold text-slate-800">Birth Certificate</div>
       {showPatientHeader && patient && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <div className="grid md:grid-cols-4 gap-3">
@@ -170,27 +180,8 @@ export default function Hospital_BirthCertificateForm({ encounterId, docId, pati
           <input disabled className="w-full border rounded-md px-2 py-1 text-sm bg-slate-100" value={form.srNo||''} />
         </div>
         <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">Mother Name</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.motherName||''} onChange={e=>setForm((v:any)=>({ ...v, motherName: e.target.value }))} />
-        </div>
-        <div>
           <label className="block text-sm font-bold text-slate-800 mb-1">Father Name</label>
           <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.fatherName||''} onChange={e=>setForm((v:any)=>({ ...v, fatherName: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">Phone</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.phone||''} onChange={e=>setForm((v:any)=>({ ...v, phone: e.target.value }))} />
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-4 gap-3">
-        <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">Address</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.address||''} onChange={e=>setForm((v:any)=>({ ...v, address: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">MR Number</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.mrNumber||''} onChange={e=>setForm((v:any)=>({ ...v, mrNumber: e.target.value }))} />
         </div>
       </div>
 

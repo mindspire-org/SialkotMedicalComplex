@@ -15,7 +15,13 @@ export async function create(req: Request, res: Response){
   const exists = await ReceptionUser.findOne({ username: data.username }).lean()
   if (exists) return res.status(400).json({ error: 'Username already exists' })
   const passwordHash = await bcrypt.hash(data.password, 10)
-  const u = await ReceptionUser.create({ username: data.username, role: data.role, passwordHash })
+  const u = await ReceptionUser.create({ 
+    username: data.username, 
+    role: data.role, 
+    passwordHash,
+    shiftId: data.shiftId || undefined,
+    shiftRestricted: data.shiftRestricted || false,
+  })
   res.status(201).json(u)
 }
 
@@ -28,6 +34,8 @@ export async function update(req: Request, res: Response){
   if (data.username) patch.username = data.username
   if (data.role) patch.role = data.role
   if (data.password) patch.passwordHash = await bcrypt.hash(data.password, 10)
+  if (data.shiftId !== undefined) patch.shiftId = data.shiftId || null
+  if (data.shiftRestricted !== undefined) patch.shiftRestricted = data.shiftRestricted
   const u = await ReceptionUser.findByIdAndUpdate(id, patch, { new: true })
   res.json(u)
 }

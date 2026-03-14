@@ -1,5 +1,20 @@
 import { Schema, model, models } from 'mongoose'
 
+const PaymentSchema = new Schema({
+  amount: { type: Number, required: true },
+  at: { type: String, required: true },
+  note: { type: String },
+  method: { type: String },
+  receivedBy: { type: String },
+}, { _id: false })
+
+const ReturnInfoSchema = new Schema({
+  amount: { type: Number, default: 0 },
+  at: { type: String },
+  reason: { type: String },
+  returnedBy: { type: String },
+}, { _id: false })
+
 const PatientSnapshotSchema = new Schema({
   mrn: { type: String },
   fullName: { type: String, required: true },
@@ -16,6 +31,7 @@ const OrderSchema = new Schema({
   patientId: { type: String, required: true },
   patient: { type: PatientSnapshotSchema, required: true },
   corporateId: { type: Schema.Types.ObjectId, ref: 'Corporate_Company' },
+  createdByUsername: { type: String },
   tests: { type: [String], required: true },
   items: [{
     testId: { type: String, required: true },
@@ -27,6 +43,10 @@ const OrderSchema = new Schema({
   subtotal: { type: Number, default: 0 },
   discount: { type: Number, default: 0 },
   net: { type: Number, default: 0 },
+  receivedAmount: { type: Number, default: 0 },
+  receivableAmount: { type: Number, default: 0 },
+  payments: { type: [PaymentSchema], default: [] },
+  returnInfo: { type: ReturnInfoSchema, default: { amount: 0 } },
   tokenNo: { type: String },
   status: { type: String, enum: ['received', 'completed', 'returned'], default: 'received' },
   sampleTime: { type: String },
@@ -37,6 +57,7 @@ const OrderSchema = new Schema({
   fbrStatus: { type: String },
   fbrMode: { type: String },
   fbrError: { type: String },
+  portal: { type: String, enum: ['diagnostic', 'reception'], index: true },
 }, { timestamps: true })
 
 export type DiagnosticOrderDoc = {
@@ -60,6 +81,10 @@ export type DiagnosticOrderDoc = {
   subtotal: number
   discount: number
   net: number
+  receivedAmount?: number
+  receivableAmount?: number
+  payments?: Array<{ amount: number; at: string; note?: string; method?: string; receivedBy?: string }>
+  returnInfo?: { amount: number; at?: string; reason?: string; returnedBy?: string }
   tokenNo?: string
   status: 'received' | 'completed' | 'returned'
   sampleTime?: string

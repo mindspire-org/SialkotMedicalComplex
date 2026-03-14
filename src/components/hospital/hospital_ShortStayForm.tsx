@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { hospitalApi } from '../../utils/api'
+import Toast, { type ToastState } from '../ui/Toast'
 
 type ShortStayForm = {
   patientName?: string
@@ -38,7 +39,7 @@ type ShortStayForm = {
 
 // UI uses app's standard form styling in-screen; print layout remains custom HTML in printView
 
-type Props = { encounterId?: string; patient?: { name?: string; mrn?: string; address?: string; admitted?: string; endAt?: string } }
+type Props = { encounterId?: string; patient?: { name?: string; mrn?: string; address?: string; admitted?: string; endAt?: string; encounterType?: string } }
 
 export default function Hospital_ShortStayForm(props: Props){
   const { id: routeId = '' } = useParams()
@@ -47,12 +48,20 @@ export default function Hospital_ShortStayForm(props: Props){
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<any>(null)
+  const [toast, setToast] = useState<ToastState>(null)
+  const initialLoadStartedRef = useRef(false)
+  const dataLoadedRef = useRef(false)
+  const formRef = useRef(form)
+  formRef.current = form  // Always keep ref updated with latest form
 
   useEffect(()=>{ (async()=>{
+    if (initialLoadStartedRef.current) return
+    initialLoadStartedRef.current = true
     try {
       setLoading(true)
       // Prefer encounterId passed from parent (wizard)
       let encId = props.encounterId || ''
+      const isER = props.patient?.encounterType === 'EMERGENCY'
       if (encId){
         setEncounterId(encId)
         // Prefill from provided patient snapshot
@@ -65,21 +74,41 @@ export default function Hospital_ShortStayForm(props: Props){
           timeIn: v.timeIn || (props.patient?.admitted ? new Date(props.patient.admitted as any).toISOString().slice(11,16) : ''),
         }))
         // Fetch encounter to enrich with patient age/sex and discharge date
-        const e: any = await hospitalApi.getIPDAdmissionById(encId).catch(()=>null)
-        const enc = e?.encounter
-        const p = enc?.patientId || {}
-        if (enc){
-          setForm(v=>({
-            ...v,
-            dateOut: v.dateOut || (enc.endAt? String(enc.endAt).slice(0,10):''),
-            timeOut: v.timeOut || (enc.endAt? new Date(enc.endAt).toISOString().slice(11,16):''),
-            age: v.age || (p.age || ''),
-            sex: v.sex ? v.sex : normSex(p.gender),
-          }))
+        if (isER) {
+          // ER encounter - use billing summary API
+          const s: any = await hospitalApi.erBillingSummary(encId).catch(()=>null)
+          const enc = s?.encounter
+          const p = enc?.patientId || {}
+          if (enc){
+            setForm(v=>({
+              ...v,
+              dateOut: v.dateOut || (enc.endAt? String(enc.endAt).slice(0,10):''),
+              timeOut: v.timeOut || (enc.endAt? new Date(enc.endAt).toISOString().slice(11,16):''),
+              age: v.age || (p.age || ''),
+              sex: v.sex ? v.sex : normSex(p.gender),
+            }))
+          }
+        } else {
+          // IPD encounter
+          const e: any = await hospitalApi.getIPDAdmissionById(encId).catch(()=>null)
+          const enc = e?.encounter
+          const p = enc?.patientId || {}
+          if (enc){
+            setForm(v=>({
+              ...v,
+              dateOut: v.dateOut || (enc.endAt? String(enc.endAt).slice(0,10):''),
+              timeOut: v.timeOut || (enc.endAt? new Date(enc.endAt).toISOString().slice(11,16):''),
+              age: v.age || (p.age || ''),
+              sex: v.sex ? v.sex : normSex(p.gender),
+            }))
+          }
         }
         const ss: any = await hospitalApi.getIpdShortStay(encId).catch(()=>null)
         const data = ss?.shortStay?.data
-        if (data) setForm(prev => ({ ...prev, ...data }))
+        if (data) {
+          setForm(prev => ({ ...prev, ...data }))
+          dataLoadedRef.current = true
+        }
         return
       }
       // Fallback: resolve from route id
@@ -103,10 +132,44 @@ export default function Hospital_ShortStayForm(props: Props){
         }))
         const ss: any = await hospitalApi.getIpdShortStay(encId).catch(()=>null)
         const data = ss?.shortStay?.data
-        if (data){ setForm(prev => ({ ...prev, ...data })) }
+        if (data) {
+          setForm(prev => ({ ...prev, ...data }))
+          dataLoadedRef.current = true
+        }
       }
     } finally { setLoading(false) }
   })() }, [props.encounterId, props.patient, routeId])
+
+  // Auto-print when opened with ?print=1 - wait for data to be loaded
+  const [autoPrintTriggered, setAutoPrintTriggered] = useState(false)
+  const hasPrintedRef = useRef(false)
+  useEffect(()=>{
+    if (hasPrintedRef.current) return
+    if (autoPrintTriggered) return
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('print') !== '1') return
+    if (loading) return // Wait for loading to finish
+    if (!initialLoadStartedRef.current) return // Wait for load to have started
+    if (!dataLoadedRef.current) {
+      // Data hasn't loaded yet, wait a bit more
+      setTimeout(() => {
+        if (dataLoadedRef.current && !hasPrintedRef.current) {
+          hasPrintedRef.current = true
+          setAutoPrintTriggered(true)
+          try { printView() } catch {}
+        }
+      }, 200)
+      return
+    }
+    
+    const encId = props.encounterId || routeId
+    if (!encId) return
+    
+    // Data is loaded, trigger print
+    hasPrintedRef.current = true
+    setAutoPrintTriggered(true)
+    setTimeout(()=>{ try { printView() } catch {} }, 100)
+  }, [loading, props.encounterId, routeId, autoPrintTriggered])
 
   // Load hospital settings for print header
   useEffect(()=>{ (async()=>{
@@ -125,11 +188,12 @@ export default function Hospital_ShortStayForm(props: Props){
         dischargedAt: dischargedAtIso,
         data: form,
       })
+      setToast({ type: 'success', message: 'Saved' })
     } finally { setSaving(false) }
   }
 
   function printView(){
-    const w = window.open('', '_blank'); if (!w) return
+    const api: any = (window as any).electronAPI
     const style = `
       <style>@page{size:A4;margin:12mm}
       body{font-family:system-ui,Segoe UI,Arial,sans-serif;color:#111}
@@ -143,7 +207,7 @@ export default function Hospital_ShortStayForm(props: Props){
       .inline{display:inline-block;border-bottom:1px solid #222;min-height:0;padding:0 2px;width:max-content}
       </style>
     `
-    const F = form
+    const F = formRef.current  // Use ref to get latest form data
     const S = settings||{}
     const logo = S?.logoDataUrl ? `<img src="${S.logoDataUrl}" style="height:60px; object-fit:contain;" />` : ''
     const hdr = `
@@ -187,18 +251,25 @@ export default function Hospital_ShortStayForm(props: Props){
         </div>
         <div style="text-align:right;margin-top:8px;font-size:12px">32</div>
       </div>
-      <script>window.print && setTimeout(()=>window.print(),200)</script>
     </body></html>`
+    
+    // Use Electron print preview if available
+    try {
+      if (api && typeof api.printPreviewHtml === 'function'){
+        api.printPreviewHtml(html, {})
+        return
+      }
+    } catch {}
+    
+    // Fallback to browser window
+    const w = window.open('', '_blank'); if (!w) return
     w.document.write(html); w.document.close(); w.focus()
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end gap-2">
-        <button onClick={save} disabled={saving||loading} className="btn-outline-navy disabled:opacity-50 text-sm">{saving? 'Saving...':'Save'}</button>
-        <button onClick={printView} className="btn text-sm">Print</button>
-      </div>
-
+      <Toast toast={toast} onClose={()=>setToast(null)} />
+      <div className="text-xl font-bold text-slate-800">Short Stay Form</div>
 
       <div className="grid md:grid-cols-5 gap-3">
         <div className="md:col-span-2">
@@ -373,6 +444,11 @@ export default function Hospital_ShortStayForm(props: Props){
             <input type="time" className="w-full border rounded-md px-2 py-1 text-sm" value={form.signTime||''} onChange={e=>setForm(v=>({ ...v, signTime: e.target.value }))} />
           </div>
         </div>
+      </div>
+
+      <div className="pt-4 flex justify-start gap-2">
+        <button onClick={save} disabled={saving||loading} className="btn-outline-navy disabled:opacity-50 text-sm">{saving? 'Saving...':'Save'}</button>
+        <button onClick={printView} className="btn text-sm">Print</button>
       </div>
     </div>
   )

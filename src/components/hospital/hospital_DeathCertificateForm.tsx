@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { hospitalApi } from '../../utils/api'
+import Toast, { type ToastState } from '../ui/Toast'
 
 export type DeathCertificateFormProps = {
   encounterId?: string
@@ -35,6 +36,7 @@ type DeathForm = {
 export default function Hospital_DeathCertificateForm({ encounterId, patient }: DeathCertificateFormProps){
   const [form, setForm] = useState<DeathForm>({})
   const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState<ToastState>(null)
 
   // Prefill derived fields from patient context once
   useEffect(()=>{
@@ -98,23 +100,6 @@ export default function Hospital_DeathCertificateForm({ encounterId, patient }: 
     try { window.open(url, '_blank') } catch {}
   }
 
-  async function previewPdf(url: string){
-    const api: any = (window as any).electronAPI
-    try {
-      if (api && typeof api.printPreviewPdf === 'function'){
-        const token = ((): string => { try { return localStorage.getItem('hospital.token') || localStorage.getItem('token') || '' } catch { return '' } })()
-        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } as any : undefined })
-        const blob = await res.blob()
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          try { const r = new FileReader(); r.onload = () => resolve(String(r.result||'')); r.onerror = () => reject(new Error('read-failed')); r.readAsDataURL(blob) } catch (e) { reject(e as any) }
-        })
-        await api.printPreviewPdf(dataUrl)
-        return
-      }
-    } catch {}
-    try { window.open(url, '_blank') } catch {}
-  }
-
   const save = async () => {
     if (!encounterId) return
     const payload: any = {
@@ -125,11 +110,16 @@ export default function Hospital_DeathCertificateForm({ encounterId, patient }: 
       staffSignDate: form.staffSignDate ? new Date(form.staffSignDate).toISOString() : undefined,
       doctorSignDate: form.doctorSignDate ? new Date(form.doctorSignDate).toISOString() : undefined,
     }
-    await hospitalApi.upsertIpdDeathCertificate(encounterId, payload)
+    try {
+      await hospitalApi.upsertIpdDeathCertificate(encounterId, payload)
+      setToast({ type: 'success', message: 'Saved' })
+    } catch (e: any) {
+      setToast({ type: 'error', message: e?.message || 'Save failed' })
+      throw e
+    }
   }
 
-  const saveAndPrint = async () => {
-    await save()
+  const printOnly = async () => {
     if (!encounterId) return
     const apiBase = (import.meta as any).env?.VITE_API_URL || ''
     const url = `${apiBase}/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/death-certificate/print`
@@ -138,6 +128,8 @@ export default function Hospital_DeathCertificateForm({ encounterId, patient }: 
 
   return (
     <div className="space-y-3">
+      <Toast toast={toast} onClose={()=>setToast(null)} />
+      <div className="text-xl font-bold text-slate-800">Death Certificate</div>
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
         <div className="grid md:grid-cols-4 gap-3">
           <div>
@@ -180,31 +172,12 @@ export default function Hospital_DeathCertificateForm({ encounterId, patient }: 
           <label className="block text-sm font-bold text-slate-800 mb-1">DC No</label>
           <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.dcNo||''} onChange={e=>setForm(v=>({ ...v, dcNo: e.target.value }))} />
         </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">MR Number</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.mrNumber||''} onChange={e=>setForm(v=>({ ...v, mrNumber: e.target.value }))} />
-        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">Patient Name</label>
-          <input disabled className="w-full border rounded-md px-2 py-1 text-sm bg-slate-50" value={patient?.name||''} />
-        </div>
-        <div>
           <label className="block text-sm font-bold text-slate-800 mb-1">S/o, D/o, W/o</label>
           <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.relative||''} onChange={e=>setForm(v=>({ ...v, relative: e.target.value }))} />
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-3 gap-3">
-        <div>
-          <label className="block text-sm font-bold text-slate-800 mb-1">Age / Sex</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.ageSex||''} onChange={e=>setForm(v=>({ ...v, ageSex: e.target.value }))} />
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-bold text-slate-800 mb-1">Address</label>
-          <input className="w-full border rounded-md px-2 py-1 text-sm" value={form.address||''} onChange={e=>setForm(v=>({ ...v, address: e.target.value }))} />
         </div>
       </div>
 
@@ -306,15 +279,7 @@ export default function Hospital_DeathCertificateForm({ encounterId, patient }: 
 
       <div className="pt-1 flex flex-wrap gap-2">
         <button disabled={loading || !encounterId} onClick={save} className="btn-outline-navy disabled:opacity-50">Save</button>
-        <button disabled={loading || !encounterId} onClick={saveAndPrint} className="btn disabled:opacity-50">Save & Print</button>
-        <button disabled={loading || !encounterId} onClick={async () => {
-          if (!encounterId) return
-          const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
-          const isElectronUA = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent || '')
-          const apiBase = (import.meta as any).env?.VITE_API_URL || ((isFile || isElectronUA) ? 'http://127.0.0.1:4000/api' : 'http://localhost:4000/api')
-          const url = `${apiBase}/hospital/ipd/admissions/${encodeURIComponent(encounterId)}/death-certificate/print-pdf`
-          await previewPdf(url)
-        }} className="btn-outline-navy disabled:opacity-50">Download PDF</button>
+        <button disabled={loading || !encounterId} onClick={printOnly} className="btn disabled:opacity-50">Print</button>
       </div>
     </div>
   )

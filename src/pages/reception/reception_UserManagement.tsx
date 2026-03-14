@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { receptionApi } from '../../utils/api'
+import Toast from '../../components/ui/Toast'
+import { fmt12 } from '../../utils/timeFormat'
 
-type User = { _id: string; username: string; role: string }
+type Shift = { _id: string; name: string; start: string; end: string }
+type User = { _id: string; username: string; role: string; shiftId?: string; shiftRestricted?: boolean }
 
 export default function Reception_UserManagement() {
   const navigate = useNavigate()
@@ -11,19 +14,22 @@ export default function Reception_UserManagement() {
   const [newRole, setNewRole] = useState<User['role']>('receptionist')
   const [newPassword, setNewPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [editing, setEditing] = useState<{ _id: string; username: string; role: User['role'] } | null>(null)
+  const [shifts, setShifts] = useState<Shift[]>([])
+  const [editing, setEditing] = useState<{ _id: string; username: string; role: User['role']; shiftId?: string; shiftRestricted?: boolean } | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [roles, setRoles] = useState<string[]>(['admin', 'receptionist'])
   const [newRoleName, setNewRoleName] = useState('')
   const [creatingRole, setCreatingRole] = useState(false)
   const [addUserError, setAddUserError] = useState('')
+  const [toast, setToast] = useState<{type: 'success'|'error', message: string} | null>(null)
 
   async function load(){
     setLoading(true)
     try {
-      const [rolesRes, usersRes] = await Promise.allSettled([
+      const [rolesRes, usersRes, shiftsRes] = await Promise.allSettled([
         (receptionApi as any).listSidebarRoles?.() as any,
         receptionApi.listUsers() as any,
+        receptionApi.listShifts() as any,
       ])
 
       if (rolesRes.status === 'fulfilled') {
@@ -32,7 +38,20 @@ export default function Reception_UserManagement() {
       }
 
       if (usersRes.status === 'fulfilled') {
-        setUsers((usersRes.value?.items || []) as User[])
+        const arr = (usersRes.value?.items || []) as any[]
+        const list: User[] = arr.map((u: any) => ({
+          _id: String(u._id || u.id),
+          username: u.username,
+          role: u.role,
+          shiftId: u.shiftId,
+          shiftRestricted: u.shiftRestricted,
+        }))
+        setUsers(list)
+      }
+
+      if (shiftsRes.status === 'fulfilled') {
+        const list = (shiftsRes.value?.items || []) as any[]
+        setShifts(list.map((s: any) => ({ _id: String(s._id || s.id), name: s.name, start: s.start, end: s.end })))
       }
     } catch {
     } finally {
@@ -95,17 +114,26 @@ export default function Reception_UserManagement() {
       await receptionApi.deleteUser(_id)
       setUsers(prev => prev.filter(u => u._id !== _id))
     } catch (e: any) {
-      alert(e?.message || 'Failed to delete user')
+      setToast({ type: 'error', message: e?.message || 'Failed to delete user' })
     }
   }
 
-  const openEdit = (u: User) => setEditing({ _id: u._id, username: u.username, role: u.role })
+  const openEdit = (u: User) => setEditing({ _id: u._id, username: u.username, role: u.role, shiftId: u.shiftId, shiftRestricted: u.shiftRestricted })
   const saveEdit = async () => {
     if (!editing) return
     setSavingEdit(true)
     try {
-      const updated = await receptionApi.updateUser(editing._id, { username: editing.username, role: editing.role }) as any
-      setUsers(prev => prev.map(u => (u._id === editing._id ? ({ ...u, username: updated?.username ?? editing.username, role: updated?.role ?? editing.role }) : u)))
+      const payload: any = { username: editing.username, role: editing.role }
+      if (editing.shiftId !== undefined) payload.shiftId = editing.shiftId || null
+      if (editing.shiftRestricted !== undefined) payload.shiftRestricted = editing.shiftRestricted
+      const updated = await receptionApi.updateUser(editing._id, payload) as any
+      setUsers(prev => prev.map(u => (u._id === editing._id ? ({
+        ...u,
+        username: updated?.username ?? editing.username,
+        role: updated?.role ?? editing.role,
+        shiftId: updated?.shiftId ?? editing.shiftId,
+        shiftRestricted: updated?.shiftRestricted ?? editing.shiftRestricted,
+      }) : u)))
       setEditing(null)
     } catch {
     } finally {
@@ -124,7 +152,7 @@ export default function Reception_UserManagement() {
       setNewRoleName('')
       setNewRole(role)
     } catch (e: any) {
-      alert(e?.message || 'Failed to create role')
+      setToast({ type: 'error', message: e?.message || 'Failed to create role' })
     } finally {
       setCreatingRole(false)
     }
@@ -132,7 +160,7 @@ export default function Reception_UserManagement() {
 
   return (
     <>
-    <div className="relative min-h-[70dvh] overflow-hidden rounded-2xl border border-white/20 bg-linear-to-br from-indigo-500/25 via-fuchsia-300/25 to-cyan-300/25 p-5 sm:p-6">
+    <div className="relative min-h-[70dvh] overflow-hidden rounded-2xl border border-white/20 bg-linear-to-br from-indigo-500/25 via-fuchsia-300/25 to-cyan-300/25 p-5 sm:p-6 dark:border-slate-700/50 dark:from-indigo-900/30 dark:via-fuchsia-900/20 dark:to-cyan-900/20">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-sky-200/35 blur-3xl" />
         <div className="absolute -bottom-28 -left-28 h-80 w-80 rounded-full bg-fuchsia-200/25 blur-3xl" />
@@ -142,11 +170,11 @@ export default function Reception_UserManagement() {
       <div className="relative mx-auto w-full max-w-5xl">
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-2xl font-bold tracking-tight text-slate-900">User Management</div>
-            <div className="mt-1 text-sm text-slate-600">Create users, assign roles, and control access.</div>
+            <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">User Management</div>
+            <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">Create users, assign roles, and control access.</div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${loading ? 'border-slate-200 bg-white/60 text-slate-600' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${loading ? 'border-slate-200 bg-white/60 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400' : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
               <span className={`h-2 w-2 rounded-full ${loading ? 'bg-slate-400' : 'bg-emerald-500'}`} />
               {loading ? 'Loading…' : `${users.length} user${users.length === 1 ? '' : 's'}`}
             </div>
@@ -154,42 +182,58 @@ export default function Reception_UserManagement() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-2xl border border-white/40 bg-white/80 shadow-xl shadow-slate-200/60 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-slate-200/60 px-5 py-4">
+          <div className="rounded-2xl border border-white/40 bg-white/80 shadow-xl shadow-slate-200/60 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/80 dark:shadow-slate-950/40">
+            <div className="flex items-center justify-between border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
               <div>
-                <div className="text-sm font-semibold text-slate-900">All Users</div>
-                <div className="mt-0.5 text-xs text-slate-500">Manage accounts and roles.</div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">All Users</div>
+                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Manage accounts and roles.</div>
               </div>
             </div>
 
             <div className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50/70 text-slate-700">
+                  <thead className="bg-slate-50/70 text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
                     <tr>
-                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide">User</th>
-                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide">Role</th>
-                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide">Actions</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide dark:text-slate-400">User</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide dark:text-slate-400">Role</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide dark:text-slate-400">Shift</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wide dark:text-slate-400">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200/70 text-slate-800">
-                    {users.map(u => (
-                      <tr key={u._id} className="hover:bg-slate-50/70">
+                  <tbody className="divide-y divide-slate-200/70 text-slate-800 dark:divide-slate-700/70 dark:text-slate-200">
+                    {users.map(u => {
+                      const assignedShift = shifts.find(s => s._id === u.shiftId)
+                      return (
+                      <tr key={u._id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/70">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-3">
                             <div className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-sky-500 to-indigo-600 text-sm font-semibold text-white shadow-sm">
                               {(u.username || 'U').slice(0, 1).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <div className="truncate font-semibold text-slate-900">{u.username}</div>
-                              <div className="text-xs text-slate-500">ID: {String(u._id).slice(-6)}</div>
+                              <div className="truncate font-semibold text-slate-900 dark:text-slate-100">{u.username}</div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">ID: {String(u._id).slice(-6)}</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-5 py-3">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold capitalize text-slate-700">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold capitalize text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                             {u.role}
                           </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="text-xs">
+                            {assignedShift ? (
+                              <div>
+                                <div className="font-medium text-slate-700 dark:text-slate-300">{assignedShift.name}</div>
+                                <div className="text-slate-500 dark:text-slate-400">{fmt12(assignedShift.start)}-{fmt12(assignedShift.end)}</div>
+                                {u.shiftRestricted && <span className="mt-1 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">Restricted</span>}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">No shift</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-3">
                           <div className="flex flex-wrap gap-2">
@@ -208,10 +252,10 @@ export default function Reception_UserManagement() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                     {users.length === 0 && !loading && (
                       <tr>
-                        <td className="px-5 py-10 text-center text-slate-500" colSpan={3}>
+                        <td className="px-5 py-10 text-center text-slate-500 dark:text-slate-400" colSpan={4}>
                           No users yet.
                         </td>
                       </tr>
@@ -223,22 +267,22 @@ export default function Reception_UserManagement() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-2xl border border-white/40 bg-white/80 p-5 shadow-xl shadow-slate-200/60 backdrop-blur-md">
+            <div className="rounded-2xl border border-white/40 bg-white/80 p-5 shadow-xl shadow-slate-200/60 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/80 dark:shadow-slate-950/40">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">Add New User</div>
-                  <div className="mt-0.5 text-xs text-slate-500">Create a user and assign a role.</div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add New User</div>
+                  <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Create a user and assign a role.</div>
                 </div>
                 <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">Healthspire</div>
               </div>
 
               <div className="mt-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Create role</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Create role</div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
                   <input
                     value={newRoleName}
                     onChange={e=>setNewRoleName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-200/60"
+                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-200/60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-violet-900/40"
                     placeholder="e.g. cashier"
                   />
                   <button
@@ -253,19 +297,19 @@ export default function Reception_UserManagement() {
               </div>
 
               <div className="mt-5">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">User details</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">User details</div>
                 <div className="mt-2 grid gap-3">
                   <input
                     value={newUsername}
                     onChange={e=>setNewUsername(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60"
+                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-sky-900/40"
                     placeholder="Username"
                   />
 
                   <select
                     value={newRole}
                     onChange={e=>setNewRole(e.target.value as User['role'])}
-                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60"
+                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-sky-900/40"
                   >
                     {(roles || []).map(r => (
                       <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
@@ -276,7 +320,7 @@ export default function Reception_UserManagement() {
                     type="password"
                     value={newPassword}
                     onChange={e=>setNewPassword(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60"
+                    className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-sky-900/40"
                     placeholder="Password (min 4 chars)"
                   />
 
@@ -289,7 +333,7 @@ export default function Reception_UserManagement() {
                   </button>
 
                   {addUserError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
                       {addUserError}
                     </div>
                   )}
@@ -297,14 +341,14 @@ export default function Reception_UserManagement() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/40 bg-white/70 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-md">
-              <div className="text-sm font-semibold text-slate-900">Tip</div>
-              <div className="mt-1 text-sm text-slate-600">
+            <div className="rounded-2xl border border-white/40 bg-white/70 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/70 dark:shadow-slate-950/30">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tip</div>
+              <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                 Create a role, then configure its module visibility in{' '}
                 <button
                   type="button"
                   onClick={() => navigate('/reception/sidebar-permissions')}
-                  className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:decoration-slate-500"
+                  className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:decoration-slate-500 dark:text-slate-200 dark:decoration-slate-600 dark:hover:decoration-slate-400"
                 >
                   Sidebar Permissions
                 </button>
@@ -335,6 +379,21 @@ export default function Reception_UserManagement() {
                 ))}
               </select>
             </div>
+            <div className="px-5">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Shift</label>
+              <select value={editing.shiftId || ''} onChange={e=>setEditing(prev => prev ? { ...prev, shiftId: e.target.value || undefined } : prev)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-200/60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-sky-900/40">
+                <option value="">No shift</option>
+                {shifts.map(s => (
+                  <option key={s._id} value={s._id}>{s.name} ({fmt12(s.start)}-{fmt12(s.end)})</option>
+                ))}
+              </select>
+            </div>
+            <div className="px-5">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={editing.shiftRestricted || false} onChange={e=>setEditing(prev => prev ? { ...prev, shiftRestricted: e.target.checked } : prev)} className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                <span className="text-sm text-slate-700 dark:text-slate-200">Restrict to shift hours</span>
+              </label>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-2 px-5 pb-5 pt-4">
             <button type="button" onClick={()=>setEditing(null)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
@@ -343,6 +402,7 @@ export default function Reception_UserManagement() {
         </div>
       </div>
     )}
+    {toast && <Toast toast={toast} onClose={()=>setToast(null)} />}
     </>
   )
 }

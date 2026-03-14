@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { hospitalApi } from '../../utils/api'
 import Hospital_AddExpenseDialog from '../../components/hospital/hospital_AddExpenseDialog'
+import Hospital_EditExpenseDialog from '../../components/hospital/hospital_EditExpenseDialog'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -27,9 +28,13 @@ function toCsv(rows: ExpenseTxn[]) {
 }
 
 export default function Finance_ExpenseHistory() {
-  const [deptList, setDeptList] = useState<Array<{ id: string; name: string }>>([])
+  const [expenseDepartments, setExpenseDepartments] = useState<Array<{ _id: string; name: string }>>([])
+  const [expenseCategories, setExpenseCategories] = useState<Array<{ _id: string; name: string }>>([])
   const [all, setAll] = useState<ExpenseTxn[]>([])
   const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<ExpenseTxn | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [dept, setDept] = useState<'All' | string>('All')
@@ -39,6 +44,10 @@ export default function Finance_ExpenseHistory() {
   const [q, setQ] = useState('')
   const [rowsPerPage, setRowsPerPage] = useState(50)
   const [tick, setTick] = useState(0)
+  const [newDeptName, setNewDeptName] = useState('')
+  const [newCatName, setNewCatName] = useState('')
+  const [addingDept, setAddingDept] = useState(false)
+  const [addingCat, setAddingCat] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -46,19 +55,18 @@ export default function Finance_ExpenseHistory() {
       try {
         const res: any = await hospitalApi.listExpenses({ from: from || '1900-01-01', to: to || '2100-01-01' })
         const list: Array<any> = Array.isArray(res?.expenses) ? res.expenses : []
-        const depMap: Record<string,string> = Object.fromEntries((deptList||[]).map(d => [d.id, d.name]))
         const rows: ExpenseTxn[] = list.map(r => ({
           id: String(r._id || r.id),
           datetime: r.createdAt ? String(r.createdAt) : `${r.dateIso || ''}T00:00:00`,
           type: 'Expense',
-          category: r.category as any,
+          category: r.categoryName || r.category as any,
           description: String(r.note || ''),
           amount: Number(r.amount) || 0,
           method: (r.method ? String(r.method) : undefined) as any,
           ref: r.ref ? String(r.ref) : undefined,
           module: 'Hospital',
-          department: String(r.departmentName || '') || depMap[String(r.departmentId || '')] || String(r.departmentId || ''),
-          createdBy: r.createdBy ? String(r.createdBy) : undefined,
+          department: String(r.departmentName || ''),
+          createdBy: r.createdByUsername ? String(r.createdByUsername) : (r.createdBy ? String(r.createdBy) : undefined),
         }))
         if (!cancelled) setAll(rows)
       } catch {
@@ -66,7 +74,7 @@ export default function Finance_ExpenseHistory() {
       }
     })()
     return () => { cancelled = true }
-  }, [from, to, tick, deptList])
+  }, [from, to, tick])
 
   // Refresh when salary payments trigger a global event
   useEffect(()=>{
@@ -79,15 +87,27 @@ export default function Finance_ExpenseHistory() {
     let cancelled = false
     ;(async () => {
       try {
-        const res: any = await hospitalApi.listDepartments()
-        const list: Array<{ id: string; name: string }> = (res?.departments || res || []).map((d: any) => ({ id: String(d._id || d.id), name: d.name }))
-        if (!cancelled) setDeptList(list)
+        const res: any = await hospitalApi.listExpenseDepartments()
+        if (!cancelled) setExpenseDepartments(res?.departments || [])
       } catch {
-        if (!cancelled) setDeptList([])
+        if (!cancelled) setExpenseDepartments([])
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [tick])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res: any = await hospitalApi.listExpenseCategories()
+        if (!cancelled) setExpenseCategories(res?.categories || [])
+      } catch {
+        if (!cancelled) setExpenseCategories([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [tick])
 
   const filtered = useMemo(() => {
     const fromDate = from ? new Date(from) : null
@@ -108,6 +128,21 @@ export default function Finance_ExpenseHistory() {
   }, [all, from, to, dept, cat, method, user, q])
 
   const total = useMemo(() => filtered.reduce((sum, r) => sum + (r.amount || 0), 0), [filtered])
+
+  const handleEdit = (expense: ExpenseTxn) => {
+    setEditingExpense(expense)
+    setEditOpen(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await hospitalApi.deleteExpense(id)
+      setTick(t => t + 1)
+      setDeleteConfirm(null)
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete expense')
+    }
+  }
 
   const exportCsv = () => {
     const csv = toCsv(filtered)
@@ -166,7 +201,8 @@ export default function Finance_ExpenseHistory() {
     doc.save(`expenses_${new Date().toISOString().slice(0,10)}.pdf`)
   }
 
-  const departmentNames = deptList.map(d => d.name)
+  const departmentNames = expenseDepartments.map((d: { _id: string; name: string }) => d.name)
+  const categoryNames = expenseCategories.map((c: { _id: string; name: string }) => c.name)
   const userNames = useMemo(() => {
     const set = new Set<string>()
     for (const r of all) {
@@ -174,6 +210,40 @@ export default function Finance_ExpenseHistory() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [all])
+
+  const addDepartment = async () => {
+    const name = newDeptName.trim()
+    if (!name) return
+    setAddingDept(true)
+    try {
+      const res: any = await hospitalApi.createExpenseDepartment(name)
+      if (res?.department) {
+        setExpenseDepartments(prev => [...prev, res.department])
+        setNewDeptName('')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to add department')
+    } finally {
+      setAddingDept(false)
+    }
+  }
+
+  const addCategory = async () => {
+    const name = newCatName.trim()
+    if (!name) return
+    setAddingCat(true)
+    try {
+      const res: any = await hospitalApi.createExpenseCategory(name)
+      if (res?.category) {
+        setExpenseCategories(prev => [...prev, res.category])
+        setNewCatName('')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to add category')
+    } finally {
+      setAddingCat(false)
+    }
+  }
 
   return (
     <div className="w-full px-6 py-8 space-y-4">
@@ -190,8 +260,63 @@ export default function Finance_ExpenseHistory() {
         </div>
       </div>
 
+      {/* Department & Category Management */}
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="grid items-end gap-3 md:grid-cols-9">
+        <div className="mb-3 text-sm font-medium text-slate-700">Manage Departments & Categories</div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">Add New Department</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newDeptName}
+                onChange={e => setNewDeptName(e.target.value)}
+                placeholder="e.g., Administration, Maintenance..."
+                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                onClick={addDepartment}
+                disabled={!newDeptName.trim() || addingDept}
+                className="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {addingDept ? 'Adding...' : '+ Add Dept'}
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {expenseDepartments.map(d => (
+                <span key={d._id} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{d.name}</span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">Add New Category</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newCatName}
+                onChange={e => setNewCatName(e.target.value)}
+                placeholder="e.g., Electric Bill, Generator Fuel..."
+                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                onClick={addCategory}
+                disabled={!newCatName.trim() || addingCat}
+                className="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {addingCat ? 'Adding...' : '+ Add Category'}
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {expenseCategories.map(c => (
+                <span key={c._id} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{c.name}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="grid items-end gap-4 md:grid-cols-9">
           <div>
             <label className="mb-1 block text-sm text-slate-700">From</label>
             <input type="date" value={from} onChange={e=>setFrom(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
@@ -200,24 +325,23 @@ export default function Finance_ExpenseHistory() {
             <label className="mb-1 block text-sm text-slate-700">To</label>
             <input type="date" value={to} onChange={e=>setTo(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
-          <div>
-            <label className="mb-1 block text-sm text-slate-700">Department</label>
-            <select value={dept} onChange={e=>setDept(e.target.value as any)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm min-w-[180px]">
-              <option>All</option>
-              {departmentNames.map(d => (<option key={d}>{d}</option>))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-slate-700">Category</label>
-            <select value={cat} onChange={e=>setCat(e.target.value as any)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-              <option>All</option>
-              <option>Rent</option>
-              <option>Utilities</option>
-              <option>Supplies</option>
-              <option>Salaries</option>
-              <option>Maintenance</option>
-              <option>Other</option>
-            </select>
+          <div className="md:col-span-2">
+            <div className="flex gap-3">
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-sm text-slate-700">Department</label>
+                <select value={dept} onChange={e=>setDept(e.target.value as any)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option>All</option>
+                  {departmentNames.map((d: string) => (<option key={d}>{d}</option>))}
+                </select>
+              </div>
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-sm text-slate-700">Category</label>
+                <select value={cat} onChange={e=>setCat(e.target.value as any)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option>All</option>
+                  {categoryNames.map((c: string) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              </div>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-700">Method</label>
@@ -268,6 +392,7 @@ export default function Finance_ExpenseHistory() {
                 <th className="px-4 py-2 font-medium">Method</th>
                 <th className="px-4 py-2 font-medium">Ref</th>
                 <th className="px-4 py-2 font-medium">Amount</th>
+                <th className="px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-slate-700">
@@ -281,11 +406,17 @@ export default function Finance_ExpenseHistory() {
                   <td className="px-4 py-2">{r.method || '-'}</td>
                   <td className="px-4 py-2">{r.ref || '-'}</td>
                   <td className="px-4 py-2">Rs {r.amount.toFixed(2)}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleEdit(r)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</button>
+                      <button onClick={() => setDeleteConfirm(r.id)} className="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">No expenses</td>
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">No expenses</td>
                 </tr>
               )}
             </tbody>
@@ -297,6 +428,34 @@ export default function Finance_ExpenseHistory() {
         </div>
       </div>
       <Hospital_AddExpenseDialog open={addOpen} onClose={()=>setAddOpen(false)} onSaved={()=>setTick(t=>t+1)} />
+      
+      {/* Edit Dialog */}
+      {editOpen && editingExpense && (
+        <Hospital_EditExpenseDialog
+          expense={editingExpense}
+          open={editOpen}
+          onClose={() => { setEditOpen(false); setEditingExpense(null) }}
+          onSaved={() => { setTick(t => t + 1); setEditOpen(false); setEditingExpense(null) }}
+        />
+      )}
+
+      {/* Delete Confirmation */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="border-b border-slate-200 px-5 py-3">
+              <div className="text-lg font-semibold text-slate-800">Confirm Delete</div>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-slate-700">Are you sure you want to delete this expense? This action cannot be undone.</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button onClick={() => setDeleteConfirm(null)} className="btn-outline-navy">Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm)} className="btn bg-red-600 hover:bg-red-700 text-white">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

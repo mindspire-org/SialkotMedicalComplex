@@ -2,7 +2,7 @@ import { Schema, model, models } from 'mongoose'
 
 const EncounterSchema = new Schema({
   patientId: { type: Schema.Types.ObjectId, ref: 'Lab_Patient', required: true, index: true },
-  type: { type: String, enum: ['OPD','IPD'], required: true, index: true },
+  type: { type: String, enum: ['OPD','IPD','ER'], required: true, index: true },
   status: { type: String, required: true, index: true },
   departmentId: { type: Schema.Types.ObjectId, ref: 'Hospital_Department', required: true },
   doctorId: { type: Schema.Types.ObjectId, ref: 'Hospital_Doctor' },
@@ -22,6 +22,7 @@ const EncounterSchema = new Schema({
   wardId: { type: String },
   bedId: { type: String },
   deposit: { type: Number },
+  tokenId: { type: Schema.Types.ObjectId, ref: 'Hospital_Token' },
 }, { timestamps: true })
 
 EncounterSchema.index({ patientId: 1, startAt: -1 })
@@ -30,7 +31,7 @@ EncounterSchema.index({ doctorId: 1, startAt: -1 })
 export type HospitalEncounterDoc = {
   _id: string
   patientId: string
-  type: 'OPD'|'IPD'
+  type: 'OPD'|'IPD'|'ER'
   status: string
   departmentId: string
   doctorId?: string
@@ -48,6 +49,7 @@ export type HospitalEncounterDoc = {
   wardId?: string
   bedId?: string
   deposit?: number
+  tokenId?: string
 }
 
 export const HospitalEncounter = models.Hospital_Encounter || model('Hospital_Encounter', EncounterSchema)

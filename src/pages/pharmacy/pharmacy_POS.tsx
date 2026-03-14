@@ -23,8 +23,19 @@ type CartLine = {
   name: string
   unitPrice: number
   qty: number
+  sellBy?: 'loose' | 'pack'
+  unitsPerPack?: number
+  salePerPack?: number
   discountRs?: number
   discountPct?: number
+}
+
+function lineUnits(line: CartLine): number {
+  const sellBy = line.sellBy || 'loose'
+  const upp = Number(line.unitsPerPack || 0)
+  const q = Number(line.qty || 0)
+  if (sellBy === 'pack') return Math.max(0, q) * Math.max(0, upp)
+  return Math.max(0, q)
 }
 
 export default function Pharmacy_POS() {
@@ -35,7 +46,7 @@ export default function Pharmacy_POS() {
   const [cart, setCart] = useState<CartLine[]>([])
   const [payOpen, setPayOpen] = useState(false)
   const [receiptOpen, setReceiptOpen] = useState(false)
-  const [payment, setPayment] = useState<{ method: 'cash' | 'credit'; customer?: string; customerId?: string } | null>(null)
+  const [payment, setPayment] = useState<{ method: 'cash' | 'credit'; customer?: string; customerId?: string; customerPhone?: string } | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [productIndex, setProductIndex] = useState<Record<string, Product>>({})
   const [busy, setBusy] = useState(false)
@@ -70,9 +81,10 @@ export default function Pharmacy_POS() {
     if (cart.length===0) return
     try {
       const payload = { billDiscountPct: billDiscountPct||0, lines: cart.map(l=> {
-        const sub = Number(l.unitPrice||0) * Number(l.qty||0)
+        const unitsQty = Number(lineUnits(l) || 0)
+        const sub = Number(l.unitPrice||0) * unitsQty
         const disc = Math.max(0, Math.min(100, Number(l.discountPct||0))) * sub / 100
-        return { medicineId: l.productId, name: l.name, unitPrice: Number(l.unitPrice||0), qty: l.qty, discountRs: Number(disc.toFixed(2)) }
+        return { medicineId: l.productId, name: l.name, unitPrice: Number(l.unitPrice||0), qty: unitsQty, discountRs: Number(disc.toFixed(2)) }
       }) }
       await pharmacyApi.createHoldSale(payload)
       setCart([])
@@ -89,7 +101,7 @@ export default function Pharmacy_POS() {
         const sub = Number(l.unitPrice||0) * Number(l.qty||0)
         const rs = Number(l.discountRs||0)
         const pct = sub>0 ? (rs / sub) * 100 : 0
-        return { id: crypto.randomUUID(), productId: l.medicineId, name: l.name, unitPrice: Number(l.unitPrice||0), qty: Number(l.qty||0), discountPct: Number(pct.toFixed(4)) }
+        return { id: crypto.randomUUID(), productId: l.medicineId, name: l.name, unitPrice: Number(l.unitPrice||0), qty: Number(l.qty||0), sellBy: 'loose', discountPct: Number(pct.toFixed(4)) }
       }))
       setBillDiscountPct(Number(doc.billDiscountPct||0))
       await pharmacyApi.deleteHoldSale(id)
@@ -220,13 +232,14 @@ export default function Pharmacy_POS() {
       const found = prev.find(l => l.productId === pid)
       if (found) {
         const max = Number(p.stock || 0)
-        if (found.qty + 1 > max) { showToast('error', `Only ${max} in stock for ${p.name}`); return prev }
+        const nextUnits = lineUnits({ ...found, qty: found.qty + 1 })
+        if (nextUnits > max) { showToast('error', `Only ${max} in stock for ${p.name}`); return prev }
         if (opts?.focusQty !== false) { pendingFocusLineIdRef.current = found.id } else { pendingFocusLineIdRef.current = null }
         return prev.map(l => (l.productId === pid ? { ...l, qty: l.qty + 1 } : l))
       }
       const id = crypto.randomUUID()
       if (opts?.focusQty !== false) { pendingFocusLineIdRef.current = id } else { pendingFocusLineIdRef.current = null }
-      return [...prev, { id, productId: pid, name: p.name, unitPrice: p.unitPrice, qty: 1, discountPct: Math.max(0, Math.min(100, Number(p.defaultDiscountPct||0))) }]
+      return [...prev, { id, productId: pid, name: p.name, unitPrice: p.unitPrice, qty: 1, sellBy: 'loose', unitsPerPack: Number(p.unitsPerPack || 0), salePerPack: Number(p.salePerPack || 0), discountPct: Math.max(0, Math.min(100, Number(p.defaultDiscountPct||0))) }]
     })
   }
 
@@ -235,7 +248,8 @@ export default function Pharmacy_POS() {
       const line = prev.find(l => l.id === id)
       if (!line) return prev
       const max = getStock(line.productId)
-      if (max > 0 && line.qty + 1 > max) {
+      const nextUnits = lineUnits({ ...line, qty: line.qty + 1 })
+      if (max > 0 && nextUnits > max) {
         const p = products.find(pp => pp.id === line.productId)
         showToast('error', `Only ${max} in stock for ${p?.name || 'this item'}`)
         return prev
@@ -252,22 +266,49 @@ export default function Pharmacy_POS() {
       if (!line) return prev
       const max = getStock(line.productId)
       const safe = Math.max(1, qty | 0)
-      if (max > 0 && safe > max) {
+      const nextUnits = lineUnits({ ...line, qty: safe })
+      if (max > 0 && nextUnits > max) {
         const p = products.find(pp => pp.id === line.productId)
         showToast('error', `Max available is ${max} for ${p?.name || 'this item'}`)
-        return prev.map(l => (l.id === id ? { ...l, qty: max } : l))
+        const sellBy = line.sellBy || 'loose'
+        const upp = Number(line.unitsPerPack || 0)
+        const cappedQty = sellBy === 'pack' && upp > 0 ? Math.max(1, Math.floor(max / upp)) : Math.max(1, max)
+        return prev.map(l => (l.id === id ? { ...l, qty: cappedQty } : l))
       }
       return prev.map(l => (l.id === id ? { ...l, qty: safe } : l))
+    })
+  }
+
+  const setSellBy = (id: string, sellBy: 'loose' | 'pack') => {
+    setCart(prev => {
+      const line = prev.find(l => l.id === id)
+      if (!line) return prev
+      const max = getStock(line.productId)
+      const upp = Math.max(0, Number(line.unitsPerPack || 0))
+      const currentUnits = lineUnits(line)
+      let nextQty = line.qty
+      if (sellBy === 'pack') {
+        nextQty = upp > 0 ? Math.max(1, Math.ceil(currentUnits / upp)) : 1
+      } else {
+        nextQty = Math.max(1, currentUnits)
+      }
+      const nextUnits = lineUnits({ ...line, sellBy, qty: nextQty })
+      if (max > 0 && nextUnits > max) {
+        // cap to max
+        const cappedQty = sellBy === 'pack' && upp > 0 ? Math.max(1, Math.floor(max / upp)) : Math.max(1, max)
+        return prev.map(l => (l.id === id ? { ...l, sellBy, qty: cappedQty } : l))
+      }
+      return prev.map(l => (l.id === id ? { ...l, sellBy, qty: nextQty } : l))
     })
   }
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((sum, line) => {
       const price = Number(line.unitPrice ?? (productIndex[line.productId]?.unitPrice) ?? 0)
-      return sum + price * line.qty
+      return sum + price * lineUnits(line)
     }, 0)
     const lineDiscount = cart.reduce((s, l)=> {
-      const price = Number(l.unitPrice||0) * Number(l.qty||0)
+      const price = Number(l.unitPrice||0) * Number(lineUnits(l) || 0)
       const pct = Number(l.discountPct||0)
       const disc = Math.max(0, Math.min(100, pct)) * price / 100
       return s + disc
@@ -317,7 +358,7 @@ export default function Pharmacy_POS() {
   }
 
   const openPayment = () => { try { searchInputRef.current?.blur() } catch {}; setPayOpen(true) }
-  const confirmPayment = async (data: { method: 'cash' | 'credit'; customer?: string; customerId?: string }) => {
+  const confirmPayment = async (data: { method: 'cash' | 'credit'; customer?: string; customerId?: string; customerPhone?: string }) => {
     setPayment(data)
     setPayOpen(false)
     try {
@@ -325,7 +366,7 @@ export default function Pharmacy_POS() {
       await refreshCartStocks()
       const bad = cart.find(l => {
         const max = getStock(l.productId)
-        return max > 0 && Number(l.qty || 0) > max
+        return max > 0 && Number(lineUnits(l) || 0) > max
       })
       if (bad) {
         const p = productIndex[bad.productId] || products.find(pp => pp.id === bad.productId)
@@ -339,22 +380,24 @@ export default function Pharmacy_POS() {
         const unit = Number(l.unitPrice || 0)
         const pct = Math.max(0, Math.min(100, Number(l.discountPct || 0)))
         const effectiveUnit = unit * (1 - pct / 100)
-        const lineSub = unit * Number(l.qty || 0)
+        const lineSub = unit * Number(lineUnits(l) || 0)
         const lineDisc = Math.max(0, Math.min(100, pct)) * lineSub / 100
-        return { name: l.name, qty: l.qty, price: Math.round(effectiveUnit * 100) / 100, discountRs: Math.round(lineDisc * 100) / 100 }
+        return { name: l.name, qty: Number(lineUnits(l) || 0), price: Math.round(effectiveUnit * 100) / 100, discountRs: Math.round(lineDisc * 100) / 100 }
       })
       const lines = cart.map(l => {
-        const lineSub = Number(l.unitPrice||0) * Number(l.qty||0)
+        const unitsQty = Number(lineUnits(l) || 0)
+        const lineSub = Number(l.unitPrice||0) * unitsQty
         const lineDisc = Math.max(0, Math.min(100, Number(l.discountPct||0))) * lineSub / 100
-        return { medicineId: l.productId, name: l.name, unitPrice: Number(l.unitPrice || 0), qty: l.qty, discountRs: Number(lineDisc.toFixed(2)) }
+        return { medicineId: l.productId, name: l.name, unitPrice: Number(l.unitPrice || 0), qty: unitsQty, discountRs: Number(lineDisc.toFixed(2)) }
       })
       const payload = {
         customer: data.customer,
         customerId: data.customerId,
+        customerPhone: data.customerPhone,
         payment: data.method === 'cash' ? 'Cash' : 'Credit',
         discountPct: Number(billDiscountPct||0),
         lineDiscountTotal: cart.reduce((s,l)=> {
-          const sub = Number(l.unitPrice||0) * Number(l.qty||0)
+          const sub = Number(l.unitPrice||0) * Number(lineUnits(l) || 0)
           const disc = Math.max(0, Math.min(100, Number(l.discountPct||0))) * sub / 100
           return s + disc
         }, 0),
@@ -470,8 +513,10 @@ export default function Pharmacy_POS() {
           // Add qty times with resolved details
           setCart(prev => {
             const found = prev.find(l => l.productId === pid)
-            if (found) return prev.map(l => (l.productId === pid ? { ...l, qty: l.qty + Math.max(1, ln.qty|0) } : l))
-            return [...prev, { id: crypto.randomUUID(), productId: pid, name: product!.name, unitPrice: product!.unitPrice, qty: Math.max(1, ln.qty|0) }]
+            if (found) {
+              return prev.map(l => (l.productId === pid ? { ...l, qty: l.qty + Math.max(1, ln.qty|0) } : l))
+            }
+            return [...prev, { id: crypto.randomUUID(), productId: pid, name: product!.name, unitPrice: product!.unitPrice, qty: Math.max(1, ln.qty|0), sellBy: 'loose', unitsPerPack: Number(product!.unitsPerPack || 0), salePerPack: Number(product!.salePerPack || 0), discountPct: Math.max(0, Math.min(100, Number(product!.defaultDiscountPct||0))) }]
           })
         }
       } catch {}
@@ -769,6 +814,7 @@ export default function Pharmacy_POS() {
           onRemove={remove}
           onClear={clear}
           onSetQty={setQty}
+          onSetSellBy={setSellBy}
           onQtyEnter={() => {
             try {
               searchInputRef.current?.focus()
@@ -776,7 +822,7 @@ export default function Pharmacy_POS() {
               setSearchOpen(true)
             } catch {}
           }}
-          onSetLineDiscountPct={(id, pct)=> setCart(prev=> prev.map(l=> l.id===id ? { ...l, discountPct: isNaN(pct)?0:Math.max(0, Math.min(100, pct)) } : l))}
+          onSetLineDiscountPct={(id, pct)=> setCart(prev => prev.map(l => (l.id===id ? { ...l, discountPct: pct } : l)))}
         />
 
         <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800">
@@ -831,13 +877,14 @@ export default function Pharmacy_POS() {
           receiptNo={computedReceiptNo}
           method={payment?.method || 'cash'}
           lines={receiptLines}
-          discountPct={billDiscountPct}
+          discountPct={Number(billDiscountPct||0)}
           lineDiscountRs={cart.reduce((s,l)=> {
-            const sub = Number(l.unitPrice||0) * Number(l.qty||0)
+            const sub = Number(l.unitPrice||0) * Number(lineUnits(l) || 0)
             const disc = Math.max(0, Math.min(100, Number(l.discountPct||0))) * sub / 100
             return s + disc
           }, 0)}
           customer={payment?.customer}
+          customerPhone={payment?.customerPhone}
           autoPrint={true}
           datetime={new Date().toISOString()}
           fbr={receiptFbr}

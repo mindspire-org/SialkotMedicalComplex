@@ -7,6 +7,7 @@ type Row = {
   date: string // yyyy-mm-dd
   type: 'Customer' | 'Supplier'
   party: string
+  phone: string
   reference: string
   items: number
   total: number
@@ -15,6 +16,7 @@ type Row = {
 
 export default function Pharmacy_ReturnHistory() {
   const [search, setSearch] = useState('')
+  const [phone, setPhone] = useState('')
   const [type, setType] = useState<'All' | 'Customer' | 'Supplier'>('All')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -38,13 +40,14 @@ export default function Pharmacy_ReturnHistory() {
     ;(async () => {
       setLoading(true)
       try {
-        const res: any = await pharmacyApi.listReturns({ type: type === 'All' ? undefined : type, from: from || undefined, to: to || undefined, search: search || undefined, page, limit })
+        const res: any = await pharmacyApi.listReturns({ type: type === 'All' ? undefined : type, from: from || undefined, to: to || undefined, search: search || undefined, phone: phone || undefined, page, limit })
         const items = res?.items || []
         const mapped: Row[] = items.map((x: any) => ({
           id: x._id,
           date: String(x.datetime || '').slice(0,10),
           type: x.type,
           party: x.party,
+          phone: x.phone || '',
           reference: x.reference,
           items: Number(x.items || 0),
           total: Number(x.total || 0),
@@ -59,15 +62,15 @@ export default function Pharmacy_ReturnHistory() {
       setLoading(false)
     })()
     return ()=>{ mounted = false }
-  }, [search, type, from, to, page, limit, refreshTick])
+  }, [search, phone, type, from, to, page, limit, refreshTick])
 
   const exportCSV = () => {
     const escape = (v: any) => {
       const s = String(v ?? '')
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
     }
-    const header = ['Date','Type','Party','Reference','Items','Total'].map(escape).join(',')
-    const lines = rows.map(r => [r.date, r.type, r.party, r.reference, r.items, r.total.toFixed(2)].map(escape).join(',')).join('\n')
+    const header = ['Date','Type','Party','Phone','Reference','Items','Total'].map(escape).join(',')
+    const lines = rows.map(r => [r.date, r.type, r.party, r.phone, r.reference, r.items, r.total.toFixed(2)].map(escape).join(',')).join('\n')
     const csv = header + '\n' + lines
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -96,12 +99,13 @@ export default function Pharmacy_ReturnHistory() {
     const pageH = doc.internal.pageSize.getHeight()
     doc.setFont('courier', 'normal')
     const cols = [
-      { key: 'date', title: 'Date', width: 30 },
-      { key: 'type', title: 'Type', width: 22 },
-      { key: 'party', title: 'Party', width: 60 },
-      { key: 'reference', title: 'Reference', width: 34 },
-      { key: 'items', title: 'Items', width: 18 },
-      { key: 'total', title: 'Total', width: 24 },
+      { key: 'date', title: 'Date', width: 28 },
+      { key: 'type', title: 'Type', width: 20 },
+      { key: 'party', title: 'Party', width: 50 },
+      { key: 'phone', title: 'Phone', width: 22 },
+      { key: 'reference', title: 'Reference', width: 32 },
+      { key: 'items', title: 'Items', width: 16 },
+      { key: 'total', title: 'Total', width: 22 },
     ] as const
     const drawHeader = (y: number) => {
       doc.setFontSize(12)
@@ -118,7 +122,7 @@ export default function Pharmacy_ReturnHistory() {
     let y = drawHeader(margin)
     doc.setFontSize(8)
     for (const r of rows) {
-      const data = [r.date, r.type, r.party, r.reference, String(r.items), `Rs ${r.total.toFixed(2)}`]
+      const data = [r.date, r.type, r.party, r.phone, r.reference, String(r.items), `Rs ${r.total.toFixed(2)}`]
       const lines = data.map((v, i) => (doc as any).splitTextToSize(v, cols[i].width - 2)) as string[][]
       const maxLines = Math.max(1, ...lines.map(a => a.length))
       if (y + maxLines * 4 + 6 > pageH - margin) {
@@ -145,10 +149,14 @@ export default function Pharmacy_ReturnHistory() {
       <div className="text-xl font-bold text-slate-800">Return History</div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-6">
           <div className="md:col-span-2">
             <label className="mb-1 block text-sm text-slate-700">Search</label>
             <input value={search} onChange={e=>setSearch(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="invoice, supplier, medicine" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-700">Phone</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Customer phone" />
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-700">Type</label>
@@ -193,6 +201,7 @@ export default function Pharmacy_ReturnHistory() {
                 <th className="px-4 py-2 font-medium">Date</th>
                 <th className="px-4 py-2 font-medium">Type</th>
                 <th className="px-4 py-2 font-medium">Party</th>
+                <th className="px-4 py-2 font-medium">Phone</th>
                 <th className="px-4 py-2 font-medium">Reference</th>
                 <th className="px-4 py-2 font-medium">Items</th>
                 <th className="px-4 py-2 font-medium">Total</th>
@@ -205,6 +214,7 @@ export default function Pharmacy_ReturnHistory() {
                   <td className="px-4 py-2">{r.date}</td>
                   <td className="px-4 py-2">{r.type}</td>
                   <td className="px-4 py-2">{r.party}</td>
+                  <td className="px-4 py-2">{r.phone || '-'}</td>
                   <td className="px-4 py-2">{r.reference}</td>
                   <td className="px-4 py-2">{r.items}</td>
                   <td className="px-4 py-2">Rs {r.total.toFixed(2)}</td>
@@ -213,7 +223,7 @@ export default function Pharmacy_ReturnHistory() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-slate-500">No results</td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">No results</td>
                 </tr>
               )}
             </tbody>

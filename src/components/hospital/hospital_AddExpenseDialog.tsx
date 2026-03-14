@@ -3,7 +3,7 @@ import { hospitalApi } from '../../utils/api'
 
 type ExpenseInput = {
   date: string
-  category: 'Rent' | 'Utilities' | 'Supplies' | 'Salaries' | 'Maintenance' | 'Other'
+  category: string
   note: string
   amount: string
   method: 'cash' | 'bank' | 'card'
@@ -18,11 +18,16 @@ type Props = {
 }
 
 export default function Hospital_AddExpenseDialog({ open, onClose, onSaved }: Props) {
-  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([])
+  const [departments, setDepartments] = useState<Array<{ _id: string; name: string }>>([])
+  const [categories, setCategories] = useState<Array<{ _id: string; name: string }>>([])
+  const [newDept, setNewDept] = useState('')
+  const [newCat, setNewCat] = useState('')
+  const [addingDept, setAddingDept] = useState(false)
+  const [addingCat, setAddingCat] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<ExpenseInput>({
     date: new Date().toISOString().slice(0, 10),
-    category: 'Supplies',
+    category: '',
     note: '',
     amount: '',
     method: 'cash',
@@ -35,24 +40,72 @@ export default function Hospital_AddExpenseDialog({ open, onClose, onSaved }: Pr
     let cancelled = false
     ;(async () => {
       try {
-        const res: any = await hospitalApi.listDepartments()
-        const list: Array<{ id: string; name: string }> = (res?.departments || res || []).map((d: any) => ({ id: String(d._id || d.id), name: d.name }))
+        const [deptRes, catRes]: any[] = await Promise.all([
+          hospitalApi.listExpenseDepartments(),
+          hospitalApi.listExpenseCategories(),
+        ])
         if (!cancelled) {
-          setDepartments(list)
-          setForm(f => ({ ...f, department: f.department || list?.[0]?.name || '' }))
+          const deptList = deptRes?.departments || []
+          const catList = catRes?.categories || []
+          setDepartments(deptList)
+          setCategories(catList)
+          setForm(f => ({
+            ...f,
+            department: f.department || deptList?.[0]?.name || '',
+            category: f.category || catList?.[0]?.name || '',
+          }))
         }
       } catch {
-        if (!cancelled) setDepartments([])
+        if (!cancelled) {
+          setDepartments([])
+          setCategories([])
+        }
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [open])
 
   if (!open) return null
 
   const canSave = !!form.date && !!form.department && !!form.category && parseFloat(form.amount || '0') > 0 && !saving
+
+  const addDepartment = async () => {
+    const name = newDept.trim()
+    if (!name) return
+    setAddingDept(true)
+    try {
+      const res: any = await hospitalApi.createExpenseDepartment(name)
+      const added = res?.department
+      if (added) {
+        setDepartments(prev => [...prev, { _id: added._id, name: added.name }])
+        setForm(f => ({ ...f, department: added.name }))
+        setNewDept('')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to add department')
+    } finally {
+      setAddingDept(false)
+    }
+  }
+
+  const addCategory = async () => {
+    const name = newCat.trim()
+    if (!name) return
+    setAddingCat(true)
+    try {
+      const res: any = await hospitalApi.createExpenseCategory(name)
+      const added = res?.category
+      if (added) {
+        setCategories(prev => [...prev, { _id: added._id, name: added.name }])
+        setForm(f => ({ ...f, category: added.name }))
+        setNewCat('')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to add category')
+    } finally {
+      setAddingCat(false)
+    }
+  }
 
   const save = async () => {
     if (!canSave) return
@@ -61,15 +114,31 @@ export default function Hospital_AddExpenseDialog({ open, onClose, onSaved }: Pr
 
     try {
       setSaving(true)
-      const sel = departments.find(d => d.name === form.department)
+      const dept = departments.find(d => d.name === form.department)
+      const cat = categories.find(c => c.name === form.category)
+
+      // Get createdByUsername from localStorage
+      let createdByUsername: string | undefined = undefined
+      try {
+        const sessRaw = localStorage.getItem('hospital.session')
+        if (sessRaw) {
+          const sess = JSON.parse(sessRaw)
+          if (sess?.username) createdByUsername = String(sess.username)
+        }
+      } catch {}
+
       await hospitalApi.createExpense({
         dateIso: form.date,
-        departmentId: sel?.id,
-        category: form.category,
+        expenseDepartmentId: dept?._id,
+        departmentName: dept?.name,
+        category: cat?.name || form.category,
+        expenseCategoryId: cat?._id,
+        categoryName: cat?.name,
         amount: amt,
         note: form.note?.trim() || undefined,
         method: form.method,
         ref: form.reference?.trim() || undefined,
+        createdByUsername,
       })
       try {
         window.dispatchEvent(new CustomEvent('hospital:expenses:refresh'))
@@ -93,30 +162,73 @@ export default function Hospital_AddExpenseDialog({ open, onClose, onSaved }: Pr
 
         <div className="space-y-4 px-5 py-4">
           <div className="grid gap-4 md:grid-cols-2">
+            {/* Department with inline Add */}
             <div>
               <label className="mb-1 block text-sm text-slate-700">Department</label>
-              <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                {departments.map(dep => (
-                  <option key={dep.id} value={dep.name}>
-                    {dep.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  value={form.department}
+                  onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {departments.map(dep => (
+                    <option key={dep._id} value={dep.name}>{dep.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={newDept}
+                  onChange={e => setNewDept(e.target.value)}
+                  placeholder="Add new department..."
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                />
+                <button
+                  onClick={addDepartment}
+                  disabled={!newDept.trim() || addingDept}
+                  className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                >
+                  {addingDept ? '...' : 'Add'}
+                </button>
+              </div>
             </div>
+
+            {/* Category with inline Add */}
+            <div>
+              <label className="mb-1 block text-sm text-slate-700">Category</label>
+              <div className="flex gap-2">
+                <select
+                  value={form.category}
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {categories.map(cat => (
+                    <option key={cat._id} value={cat.name}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={newCat}
+                  onChange={e => setNewCat(e.target.value)}
+                  placeholder="Add new category..."
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                />
+                <button
+                  onClick={addCategory}
+                  disabled={!newCat.trim() || addingCat}
+                  className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                >
+                  {addingCat ? '...' : 'Add'}
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="mb-1 block text-sm text-slate-700">Date</label>
               <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-700">Category</label>
-              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as any }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option>Rent</option>
-                <option>Utilities</option>
-                <option>Supplies</option>
-                <option>Salaries</option>
-                <option>Maintenance</option>
-                <option>Other</option>
-              </select>
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-700">Amount</label>

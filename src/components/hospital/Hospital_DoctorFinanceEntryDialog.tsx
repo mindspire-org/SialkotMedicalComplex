@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { hospitalApi } from '../../utils/api'
 
 export type EntryType = 'OPD' | 'IPD' | 'Procedure' | 'Payout' | 'Adjustment'
 
@@ -8,7 +7,6 @@ export type HospitalDoctorFinanceEntry = {
   datetime: string
   doctorId?: string
   doctorName: string
-  type: EntryType
   patient?: string
   mrNumber?: string
   tokenId?: string
@@ -18,6 +16,8 @@ export type HospitalDoctorFinanceEntry = {
   sharePercent?: number
   doctorAmount: number
   ref?: string
+  phone?: string
+  departmentName?: string
 }
 
 type Doctor = {
@@ -37,8 +37,8 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
   type Form = {
     date: string
     doctorId: string
-    type: EntryType
     phone: string
+    department: string
     patient: string
     mrNumber: string
     description: string
@@ -48,8 +48,8 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
   const [form, setForm] = useState<Form>({
     date: new Date().toISOString().slice(0,10),
     doctorId: doctors[0]?.id || '',
-    type: 'OPD',
     phone: '',
+    department: '',
     patient: '',
     mrNumber: '',
     description: '',
@@ -59,10 +59,10 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
   useEffect(() => {
     const d = doctors.find(x => x.id === form.doctorId)
     if (!d) return
-    if (form.type === 'OPD' && !form.amount) {
+    if (!form.amount) {
       setForm(f => ({ ...f, amount: String(d.fee || '') }))
     }
-  }, [form.doctorId, form.type, doctors])
+  }, [form.doctorId, doctors])
 
   // Default to first doctor once doctors list arrives
   useEffect(() => {
@@ -74,10 +74,7 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
 
   const doc = doctors.find(x => x.id === form.doctorId)
   const amountNum = parseFloat(form.amount || '0') || 0
-  const typeLower = String(form.type || '').toLowerCase()
-  let doctorAmount = 0
-  if (typeLower === 'payout') doctorAmount = -Math.abs(amountNum)
-  else doctorAmount = Math.abs(amountNum)
+  const doctorAmount = Math.abs(amountNum)
 
   const save = (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,9 +84,10 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
       datetime: `${form.date}T00:00:00`,
       doctorId: doc?.id,
       doctorName: dname,
-      type: form.type,
       patient: form.patient.trim() || undefined,
       mrNumber: form.mrNumber.trim() || undefined,
+      phone: form.phone.trim() || undefined,
+      departmentName: form.department.trim() || undefined,
       description: form.description.trim() || undefined,
       gross: undefined,
       discount: undefined,
@@ -97,22 +95,6 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
       doctorAmount,
     }
     onSave(entry)
-  }
-
-  async function lookupByPhone(phone: string){
-    const p = phone.trim()
-    if (!p) return
-    try {
-      const res: any = await hospitalApi.searchPatientsByPhone(p)
-      const arr: any[] = (res?.patients || res || []) as any[]
-      if (arr.length){
-        const pt = arr[0]
-        const mrn = String(pt.mrn || '')
-        const name = String(pt.fullName || pt.name || '')
-        setForm(f=>({ ...f, patient: name, mrNumber: mrn }))
-        // No token auto-fill now as Token ID field is removed
-      }
-    } catch {}
   }
 
   return (
@@ -134,15 +116,12 @@ export default function Hospital_DoctorFinanceEntryDialog({ doctors, onClose, on
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm text-slate-700">Type</label>
-            <input value={form.type} onChange={e=>setForm(f=>({ ...f, type: e.target.value as EntryType }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g., OPD, IPD, Procedure, Payout, Adjustment" />
+            <label className="mb-1 block text-sm text-slate-700">Phone</label>
+            <input value={form.phone} onChange={e=>setForm(f=>({ ...f, phone: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g., 0300-1234567" />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-slate-700">Phone</label>
-            <div className="flex gap-2">
-              <input value={form.phone} onChange={e=>setForm(f=>({ ...f, phone: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g., 0300-1234567" />
-              <button type="button" onClick={()=>lookupByPhone(form.phone)} className="rounded-md border border-slate-300 px-2 text-xs hover:bg-slate-50">Lookup</button>
-            </div>
+            <label className="mb-1 block text-sm text-slate-700">Department</label>
+            <input value={form.department} onChange={e=>setForm(f=>({ ...f, department: e.target.value }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g., Medicine" />
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-700">Patient</label>

@@ -14,6 +14,7 @@ export const createOpdTokenSchema = z.object({
   age: z.string().optional(),
   departmentId: z.string().min(1),
   doctorId: z.string().optional(),
+  visitCategory: z.enum(['public','private']).optional(),
   visitType: z.enum(['new','followup']).default('new'),
   discount: z.number().min(0).optional(),
   paymentRef: z.string().optional(),

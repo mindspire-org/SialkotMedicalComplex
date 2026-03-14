@@ -15,8 +15,12 @@ import { HospitalIpdBirthCertificate } from '../models/IpdBirthCertificate'
 async function getEncounterOr404(id: string, res: Response){
   const enc: any = await HospitalEncounter.findById(id).lean()
   if (!enc){ res.status(404).json({ error: 'Encounter not found' }); return null }
-  if (enc.type !== 'IPD'){ res.status(400).json({ error: 'Not an IPD encounter' }); return null }
+  if (enc.type !== 'IPD' && enc.type !== 'ER'){ res.status(400).json({ error: 'Not an IPD or Emergency encounter' }); return null }
   return enc
+}
+
+function mapEncounterType(encType: string): 'IPD' | 'EMERGENCY' {
+  return encType === 'ER' ? 'EMERGENCY' : 'IPD'
 }
 
 export async function listBirthCertificates(req: Request, res: Response){
@@ -316,6 +320,7 @@ export async function upsertShortStay(req: Request, res: Response){
   if (data.admittedAt) patch.admittedAt = new Date(data.admittedAt)
   if (data.dischargedAt) patch.dischargedAt = new Date(data.dischargedAt)
   patch.encounterId = enc._id
+  patch.encounterType = mapEncounterType(enc.type)
   patch.patientId = enc.patientId
   patch.doctorId = enc.doctorId
   patch.departmentId = enc.departmentId
@@ -331,9 +336,15 @@ export async function upsertShortStay(req: Request, res: Response){
 
 export async function getShortStay(req: Request, res: Response){
   const { id } = req.params as any
-  const enc = await getEncounterOr404(String(id), res)
-  if (!enc) return
-  const doc = await HospitalIpdShortStay.findOne({ encounterId: enc._id }).lean()
+  // Try to find encounter, but also support orphaned forms
+  let enc: any = await HospitalEncounter.findById(id).lean()
+  let doc: any = null
+  if (enc) {
+    doc = await HospitalIpdShortStay.findOne({ encounterId: enc._id }).lean()
+  } else {
+    // Try to find the short stay document directly by its _id
+    doc = await HospitalIpdShortStay.findById(id).lean()
+  }
   res.json({ shortStay: doc || null })
 }
 
@@ -347,6 +358,7 @@ export async function upsertDischargeSummary(req: Request, res: Response){
   patch.patientId = enc.patientId
   patch.doctorId = enc.doctorId
   patch.departmentId = enc.departmentId
+  patch.encounterType = mapEncounterType(enc.type)
   if (!enc.endAt) { try { patch.dischargeDate = new Date() } catch {} }
   const existing = await HospitalIpdDischargeSummary.findOne({ encounterId: enc._id })
   let doc: any
@@ -370,8 +382,15 @@ export async function printDischargeSummary(req: Request, res: Response){
   const { id } = req.params as any
   const enc = await getEncounterOr404(String(id), res)
   if (!enc) return
-  const summary: any = await HospitalIpdDischargeSummary.findOne({ encounterId: enc._id }).lean()
-  if (!summary) return res.status(404).send('No discharge summary found')
+  const isPost = String(req.method || '').toUpperCase() === 'POST'
+  const previewPayload = isPost ? (req.body || null) : null
+  let summary: any = null
+  if (previewPayload && typeof previewPayload === 'object'){
+    summary = previewPayload
+  } else {
+    summary = await HospitalIpdDischargeSummary.findOne({ encounterId: enc._id }).lean()
+    if (!summary) return res.status(404).send('No discharge summary found')
+  }
   const settings: any = await HospitalSettings.findOne({}).lean()
   const patient: any = await LabPatient.findById(enc.patientId).lean()
   const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
@@ -417,6 +436,7 @@ export async function upsertReceivedDeath(req: Request, res: Response){
   patch.patientId = enc.patientId
   patch.doctorId = enc.doctorId
   patch.departmentId = enc.departmentId
+  patch.encounterType = mapEncounterType(enc.type)
   const existing = await HospitalIpdReceivedDeath.findOne({ encounterId: enc._id })
   let doc: any
   if (existing){
@@ -437,13 +457,17 @@ export async function getReceivedDeath(req: Request, res: Response){
 
 export async function printReceivedDeath(req: Request, res: Response){
   const { id } = req.params as any
-  const enc = await getEncounterOr404(String(id), res)
-  if (!enc) return
-  const cert: any = await HospitalIpdReceivedDeath.findOne({ encounterId: enc._id }).lean()
+  // Try to find encounter, but also support orphaned forms
+  let enc: any = await HospitalEncounter.findById(id).lean()
+  const cert: any = enc
+    ? await HospitalIpdReceivedDeath.findOne({ encounterId: enc._id }).lean()
+    : await HospitalIpdReceivedDeath.findById(id).lean()
   if (!cert) return res.status(404).send('No received death document found')
+  // If no encounter, use form's patientId directly
+  if (!enc) enc = { _id: cert.encounterId, patientId: cert.patientId, doctorId: cert.doctorId, type: cert.encounterType || 'IPD' }
   const settings: any = await HospitalSettings.findOne({}).lean()
-  const patient: any = await LabPatient.findById(enc.patientId).lean()
-  const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
+  const patient: any = await LabPatient.findById(cert.patientId || enc.patientId).lean()
+  const doctor: any = (enc.doctorId || cert.doctorId) ? await HospitalDoctor.findById(enc.doctorId || cert.doctorId).lean() : null
   const html = renderReceivedDeathHTML(settings, enc, patient, doctor, cert)
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.send(html)
@@ -451,13 +475,17 @@ export async function printReceivedDeath(req: Request, res: Response){
 
 export async function printReceivedDeathPdf(req: Request, res: Response){
   const { id } = req.params as any
-  const enc = await getEncounterOr404(String(id), res)
-  if (!enc) return
-  const doc: any = await HospitalIpdReceivedDeath.findOne({ encounterId: enc._id }).lean()
+  // Try to find encounter, but also support orphaned forms
+  let enc: any = await HospitalEncounter.findById(id).lean()
+  const doc: any = enc
+    ? await HospitalIpdReceivedDeath.findOne({ encounterId: enc._id }).lean()
+    : await HospitalIpdReceivedDeath.findById(id).lean()
   if (!doc) return res.status(404).send('No received death document found')
+  // If no encounter, use form's patientId directly
+  if (!enc) enc = { _id: doc.encounterId, patientId: doc.patientId, doctorId: doc.doctorId, type: doc.encounterType || 'IPD' }
   const settings: any = await HospitalSettings.findOne({}).lean()
-  const patient: any = await LabPatient.findById(enc.patientId).lean()
-  const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
+  const patient: any = await LabPatient.findById(doc.patientId || enc.patientId).lean()
+  const doctor: any = (enc.doctorId || doc.doctorId) ? await HospitalDoctor.findById(enc.doctorId || doc.doctorId).lean() : null
   const html = renderReceivedDeathHTML(settings, enc, patient, doctor, doc)
   let puppeteer: any
   try {
@@ -560,6 +588,7 @@ export async function upsertDeathCertificate(req: Request, res: Response){
   patch.patientId = enc.patientId
   patch.doctorId = enc.doctorId
   patch.departmentId = enc.departmentId
+  patch.encounterType = mapEncounterType(enc.type)
   const existing = await HospitalIpdDeathCertificate.findOne({ encounterId: enc._id })
   let doc: any
   if (existing){
@@ -580,13 +609,17 @@ export async function getDeathCertificate(req: Request, res: Response){
 
 export async function printDeathCertificate(req: Request, res: Response){
   const { id } = req.params as any
-  const enc = await getEncounterOr404(String(id), res)
-  if (!enc) return
-  const cert: any = await HospitalIpdDeathCertificate.findOne({ encounterId: enc._id }).lean()
+  // Try to find encounter, but also support orphaned forms
+  let enc: any = await HospitalEncounter.findById(id).lean()
+  const cert: any = enc
+    ? await HospitalIpdDeathCertificate.findOne({ encounterId: enc._id }).lean()
+    : await HospitalIpdDeathCertificate.findById(id).lean()
   if (!cert) return res.status(404).send('No death certificate found')
+  // If no encounter, use form's patientId directly
+  if (!enc) enc = { _id: cert.encounterId, patientId: cert.patientId, doctorId: cert.doctorId, type: cert.encounterType || 'IPD' }
   const settings: any = await HospitalSettings.findOne({}).lean()
-  const patient: any = await LabPatient.findById(enc.patientId).lean()
-  const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
+  const patient: any = await LabPatient.findById(cert.patientId || enc.patientId).lean()
+  const doctor: any = (enc.doctorId || cert.doctorId) ? await HospitalDoctor.findById(enc.doctorId || cert.doctorId).lean() : null
   const html = renderDeathHTML(settings, enc, patient, doctor, cert)
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.send(html)
@@ -594,13 +627,17 @@ export async function printDeathCertificate(req: Request, res: Response){
 
 export async function printDeathCertificatePdf(req: Request, res: Response){
   const { id } = req.params as any
-  const enc = await getEncounterOr404(String(id), res)
-  if (!enc) return
-  const doc: any = await HospitalIpdDeathCertificate.findOne({ encounterId: enc._id }).lean()
+  // Try to find encounter, but also support orphaned forms
+  let enc: any = await HospitalEncounter.findById(id).lean()
+  const doc: any = enc
+    ? await HospitalIpdDeathCertificate.findOne({ encounterId: enc._id }).lean()
+    : await HospitalIpdDeathCertificate.findById(id).lean()
   if (!doc) return res.status(404).send('No death certificate found')
+  // If no encounter, use form's patientId directly
+  if (!enc) enc = { _id: doc.encounterId, patientId: doc.patientId, doctorId: doc.doctorId, type: doc.encounterType || 'IPD' }
   const settings: any = await HospitalSettings.findOne({}).lean()
-  const patient: any = await LabPatient.findById(enc.patientId).lean()
-  const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
+  const patient: any = await LabPatient.findById(doc.patientId || enc.patientId).lean()
+  const doctor: any = (enc.doctorId || doc.doctorId) ? await HospitalDoctor.findById(enc.doctorId || doc.doctorId).lean() : null
   const html = renderDeathHTML(settings, enc, patient, doctor, doc)
   let puppeteer: any
   try {
@@ -629,8 +666,20 @@ export async function getFinalInvoice(req: Request, res: Response){
   const { id } = req.params as any
   const enc = await getEncounterOr404(String(id), res)
   if (!enc) return
-  const items: any[] = await HospitalIpdBillingItem.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
-  const payments: any[] = await HospitalIpdPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  const isER = enc.type === 'ER'
+  let items: any[] = []
+  let payments: any[] = []
+  if (isER){
+    // ER uses ErCharge and ErPayment
+    const { HospitalErCharge } = await import('../models/ErCharge')
+    const { HospitalErPayment } = await import('../models/ErPayment')
+    items = await HospitalErCharge.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
+    payments = await HospitalErPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  } else {
+    // IPD uses IpdBillingItem and IpdPayment
+    items = await HospitalIpdBillingItem.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
+    payments = await HospitalIpdPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  }
   const subtotal = items.reduce((s,i)=> s + Number(i.amount||0), 0)
   const paid = payments.reduce((s,p)=> s + Number(p.amount||0), 0)
   const deposit = Number(enc.deposit||0)
@@ -638,6 +687,7 @@ export async function getFinalInvoice(req: Request, res: Response){
   const balance = Math.max(0, subtotal - totalPaid)
   res.json({
     encounterId: String(enc._id),
+    encounterType: isER ? 'EMERGENCY' : 'IPD',
     admissionNo: enc.admissionNo,
     startAt: enc.startAt,
     endAt: enc.endAt,
@@ -655,22 +705,33 @@ export async function printFinalInvoice(req: Request, res: Response){
   const { id } = req.params as any
   const enc = await getEncounterOr404(String(id), res)
   if (!enc) return
-  const items: any[] = await HospitalIpdBillingItem.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
-  const payments: any[] = await HospitalIpdPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  const isER = enc.type === 'ER'
+  let items: any[] = []
+  let payments: any[] = []
+  if (isER){
+    const { HospitalErCharge } = await import('../models/ErCharge')
+    const { HospitalErPayment } = await import('../models/ErPayment')
+    items = await HospitalErCharge.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
+    payments = await HospitalErPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  } else {
+    items = await HospitalIpdBillingItem.find({ encounterId: enc._id }).sort({ date: 1 }).lean()
+    payments = await HospitalIpdPayment.find({ encounterId: enc._id }).sort({ receivedAt: 1 }).lean()
+  }
   const settings: any = await HospitalSettings.findOne({}).lean()
   const patient: any = await LabPatient.findById(enc.patientId).lean()
   const doctor: any = enc.doctorId ? await HospitalDoctor.findById(enc.doctorId).lean() : null
-  const html = renderInvoiceHTML(settings, enc, patient, doctor, items, payments)
+  const html = renderInvoiceHTML(settings, enc, patient, doctor, items, payments, isER)
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.send(html)
 }
 
 // Lists for standalone pages --------------------------------------------------
 export async function listReceivedDeaths(req: Request, res: Response){
-  const { q = '', from, to, page = '1', limit = '20' } = req.query as any
+  const { q = '', from, to, page = '1', limit = '20', encounterType } = req.query as any
   const p = Math.max(1, Number(page)||1)
   const l = Math.max(1, Math.min(200, Number(limit)||20))
   const match: any = {}
+  if (encounterType && ['IPD', 'EMERGENCY'].includes(encounterType)) match.encounterType = encounterType
   if (from || to){
     match.createdAt = {}
     if (from) match.createdAt.$gte = new Date(String(from))
@@ -701,7 +762,7 @@ export async function listReceivedDeaths(req: Request, res: Response){
     results: [
       { $skip: (p-1)*l }, { $limit: l },
       { $project: {
-        _id: 1, encounterId: 1, createdAt: 1, srNo: 1,
+        _id: 1, encounterId: 1, encounterType: 1, createdAt: 1, srNo: 1,
         patientName: '$patient.fullName', mrn: '$patient.mrn', cnic: '$patient.cnicNormalized', phone: '$patient.phoneNormalized', department: '$dept.name',
       } },
     ],
@@ -714,10 +775,11 @@ export async function listReceivedDeaths(req: Request, res: Response){
 }
 
 export async function listDeathCertificates(req: Request, res: Response){
-  const { q = '', from, to, page = '1', limit = '20' } = req.query as any
+  const { q = '', from, to, page = '1', limit = '20', encounterType } = req.query as any
   const p = Math.max(1, Number(page)||1)
   const l = Math.max(1, Math.min(200, Number(limit)||20))
   const match: any = {}
+  if (encounterType && ['IPD', 'EMERGENCY'].includes(encounterType)) match.encounterType = encounterType
   if (from || to){
     match.createdAt = {}
     if (from) match.createdAt.$gte = new Date(String(from))
@@ -747,7 +809,7 @@ export async function listDeathCertificates(req: Request, res: Response){
     results: [
       { $skip: (p-1)*l }, { $limit: l },
       { $project: {
-        _id: 1, encounterId: 1, createdAt: 1,
+        _id: 1, encounterId: 1, encounterType: 1, createdAt: 1,
         patientName: '$patient.fullName', mrn: '$patient.mrn', cnic: '$patient.cnicNormalized', phone: '$patient.phoneNormalized', department: '$dept.name',
       } },
     ],
@@ -760,10 +822,11 @@ export async function listDeathCertificates(req: Request, res: Response){
 }
 
 export async function listShortStays(req: Request, res: Response){
-  const { q = '', from, to, page = '1', limit = '20' } = req.query as any
+  const { q = '', from, to, page = '1', limit = '20', encounterType } = req.query as any
   const p = Math.max(1, Number(page)||1)
   const l = Math.max(1, Math.min(200, Number(limit)||20))
   const match: any = {}
+  if (encounterType && ['IPD', 'EMERGENCY'].includes(encounterType)) match.encounterType = encounterType
   if (from || to){
     match.createdAt = {}
     if (from) match.createdAt.$gte = new Date(String(from))
@@ -793,7 +856,7 @@ export async function listShortStays(req: Request, res: Response){
     results: [
       { $skip: (p-1)*l }, { $limit: l },
       { $project: {
-        _id: 1, encounterId: 1, createdAt: 1,
+        _id: 1, encounterId: 1, encounterType: 1, createdAt: 1,
         patientName: '$patient.fullName', mrn: '$patient.mrn', cnic: '$patient.cnicNormalized', phone: '$patient.phoneNormalized', department: '$dept.name',
       } },
     ],
@@ -806,10 +869,11 @@ export async function listShortStays(req: Request, res: Response){
 }
 
 export async function listDischargeSummaries(req: Request, res: Response){
-  const { q = '', from, to, page = '1', limit = '20' } = req.query as any
+  const { q = '', from, to, page = '1', limit = '20', encounterType } = req.query as any
   const p = Math.max(1, Number(page)||1)
   const l = Math.max(1, Math.min(200, Number(limit)||20))
   const match: any = {}
+  if (encounterType && ['IPD', 'EMERGENCY'].includes(encounterType)) match.encounterType = encounterType
   if (from || to){
     match.createdAt = {}
     if (from) match.createdAt.$gte = new Date(String(from))
@@ -839,7 +903,7 @@ export async function listDischargeSummaries(req: Request, res: Response){
     results: [
       { $skip: (p-1)*l }, { $limit: l },
       { $project: {
-        _id: 1, encounterId: 1, createdAt: 1,
+        _id: 1, encounterId: 1, encounterType: 1, createdAt: 1,
         patientName: '$patient.fullName', mrn: '$patient.mrn', cnic: '$patient.cnicNormalized', phone: '$patient.phoneNormalized', department: '$dept.name',
       } },
     ],
@@ -1128,18 +1192,19 @@ function renderReceivedDeathHTML(settings: any, enc: any, patient: any, doctor: 
   return wrap(head + body)
 }
 
-function renderInvoiceHTML(settings: any, enc: any, patient: any, doctor: any, items: any[], payments: any[]){
+function renderInvoiceHTML(settings: any, enc: any, patient: any, doctor: any, items: any[], payments: any[], isER: boolean = false){
   const sub = items.reduce((s,i)=> s + Number(i.amount||0), 0)
   const paid = payments.reduce((s,p)=> s + Number(p.amount||0), 0)
   const deposit = Number(enc.deposit||0)
   const totalPaid = deposit + paid
   const balance = Math.max(0, sub - totalPaid)
-  const head = `${hdr(settings)}<h2 style=\"margin:12px 0;\">Final Invoice</h2>`
+  const title = isER ? 'ER Final Invoice' : 'Final Invoice'
+  const head = `${hdr(settings)}<h2 style=\"margin:12px 0;\">${escapeHtml(title)}</h2>`
   const pInfo = `
     <div><b>Patient:</b> ${escapeHtml(patient?.fullName||'')} (${escapeHtml(patient?.mrn||'')})</div>
     <div><b>Doctor:</b> ${escapeHtml(doctor?.name||'')}</div>
-    <div><b>Admission No:</b> ${escapeHtml(enc?.admissionNo||'')}</div>
-    <div><b>Admitted:</b> ${fmt(enc?.startAt)} | <b>Discharged:</b> ${fmt(enc?.endAt)}</div>
+    ${isER ? '' : `<div><b>Admission No:</b> ${escapeHtml(enc?.admissionNo||'')}</div>`}
+    <div><b>${isER ? 'Date In' : 'Admitted'}:</b> ${fmt(enc?.startAt)} | <b>${isER ? 'Date Out' : 'Discharged'}:</b> ${fmt(enc?.endAt)}</div>
   `
   const itemsTbl = `<table style=\"width:100%; border-collapse:collapse; margin-top:8px;\">
     <thead><tr><th style=\"text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;\">Description</th><th style=\"text-align:right; border-bottom:1px solid #e5e7eb; padding:6px;\">Qty</th><th style=\"text-align:right; border-bottom:1px solid #e5e7eb; padding:6px;\">Unit</th><th style=\"text-align:right; border-bottom:1px solid #e5e7eb; padding:6px;\">Amount</th></tr></thead>
@@ -1172,7 +1237,7 @@ function renderInvoiceHTML(settings: any, enc: any, patient: any, doctor: any, i
 }
 
 function wrap(inner: string){
-  return `<!doctype html><html><head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Print</title>
   <style>
     body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:#0f172a; padding:12px; background:#ffffff; font-size:12px; line-height:1.35;}
@@ -1181,7 +1246,6 @@ function wrap(inner: string){
   </style>
   </head><body>
   <div class="page">${inner}</div>
-  <script>window.print && setTimeout(()=>window.print(), 300)</script>
   </body></html>`
 }
 

@@ -40,7 +40,15 @@ export default function Reception_Login() {
       } catch {}
       navigate("/reception");
     } catch (err: any) {
-      setError(err?.message || "Something went wrong");
+      let msg = err?.message || "Something went wrong"
+      // Try to parse JSON error message from backend
+      try {
+        if (typeof msg === 'string' && msg.trim().startsWith('{')) {
+          const parsed = JSON.parse(msg)
+          if (parsed?.message) msg = parsed.message
+        }
+      } catch {}
+      setError(msg)
     }
   };
 

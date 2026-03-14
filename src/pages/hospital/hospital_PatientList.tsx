@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { hospitalApi } from '../../utils/api'
 import { useNavigate } from 'react-router-dom'
+import Toast, { type ToastState } from '../../components/ui/Toast'
 
 type Row = {
   id: string
@@ -11,6 +12,7 @@ type Row = {
   admitted: string
   status: 'admitted'|'discharged'
   admissionNo?: string
+  tokenNo?: string
 }
 
 function formatDate(s?: string) {
@@ -25,6 +27,7 @@ export default function Hospital_PatientList() {
   const [rowsPerPage, setRowsPerPage] = useState(20)
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState<ToastState>(null)
 
   useEffect(()=>{ load() }, [])
   async function load(){
@@ -40,6 +43,7 @@ export default function Hospital_PatientList() {
         admitted: e.startAt,
         status: e.status,
         admissionNo: e.admissionNo,
+        tokenNo: (e.tokenId as any)?.tokenNo,
       }))
       setRows(items)
     } finally { setLoading(false) }
@@ -54,7 +58,7 @@ export default function Hospital_PatientList() {
   }, [q, rows])
 
   async function discharge(id: string){
-    try { await hospitalApi.dischargeIPD(id); await load() } catch (e: any){ alert(e?.message || 'Failed') }
+    try { await hospitalApi.dischargeIPD(id); await load() } catch (e: any){ setToast({ type: 'error', message: e?.message || 'Failed' }) }
   }
 
   // Transfer bed modal state
@@ -82,7 +86,7 @@ export default function Hospital_PatientList() {
       setTransferEncounterId(null)
       await load()
     } catch (err: any){
-      alert(err?.message || 'Failed to transfer bed')
+      setToast({ type: 'error', message: err?.message || 'Failed to transfer bed' })
     }
   }
 
@@ -105,6 +109,7 @@ export default function Hospital_PatientList() {
             <thead className="bg-slate-50 text-slate-700">
               <tr>
                 <th className="px-4 py-2 font-medium">SR.NO</th>
+                <th className="px-4 py-2 font-medium">Token #</th>
                 <th className="px-4 py-2 font-medium">MRN</th>
                 <th className="px-4 py-2 font-medium">Patient</th>
                 <th className="px-4 py-2 font-medium">Doctor</th>
@@ -117,11 +122,12 @@ export default function Hospital_PatientList() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-slate-700">
               {loading && (
-                <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500">Loading...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-6 text-center text-slate-500">Loading...</td></tr>
               )}
               {!loading && filtered.slice(0, rowsPerPage).map((p, idx) => (
                 <tr key={p.id} className="hover:bg-slate-50/50">
                   <td className="px-4 py-2">{idx + 1}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{p.tokenNo || '-'}</td>
                   <td className="px-4 py-2">{p.mrn}</td>
                   <td className="px-4 py-2 capitalize">{p.name}</td>
                   <td className="px-4 py-2">{p.doctor}</td>
@@ -144,7 +150,7 @@ export default function Hospital_PatientList() {
               ))}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">No patients</td>
+                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">No patients</td>
                 </tr>
               )}
             </tbody>
@@ -169,6 +175,7 @@ export default function Hospital_PatientList() {
           </form>
         </div>
       )}
+      <Toast toast={toast} onClose={()=>setToast(null)} />
     </div>
   )
 }

@@ -28,6 +28,7 @@ export default function Diagnostic_Login() {
 
       try {
         localStorage.setItem("token", res.token);
+        localStorage.setItem("diagnostic.token", res.token);
         localStorage.setItem("diagnostic.user", JSON.stringify(res.user));
       } catch {}
 

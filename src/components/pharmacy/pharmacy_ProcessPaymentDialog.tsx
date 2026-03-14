@@ -5,7 +5,7 @@ import { pharmacyApi } from '../../utils/api'
 type Props = {
   open: boolean
   onClose: () => void
-  onConfirm: (data: { method: 'cash' | 'credit'; customer?: string; customerId?: string }) => void
+  onConfirm: (data: { method: 'cash' | 'credit'; customer?: string; customerId?: string; customerPhone?: string }) => void
 }
 
 export default function Pharmacy_ProcessPaymentDialog({ open, onClose, onConfirm }: Props) {
@@ -60,9 +60,10 @@ export default function Pharmacy_ProcessPaymentDialog({ open, onClose, onConfirm
 
   const confirm = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const customer = method === 'credit' ? (form.name || form.phone || form.cnic || form.mrNumber || undefined) : undefined
+    const customer = (form.name || '').trim() || undefined
     const customerId = method === 'credit' ? (selectedId || undefined) : undefined
-    onConfirm({ method, customer, customerId })
+    const customerPhone = (form.phone || '').trim() || undefined
+    onConfirm({ method, customer, customerId, customerPhone })
   }
 
   const pick = (c: Customer) => {
@@ -125,6 +126,10 @@ export default function Pharmacy_ProcessPaymentDialog({ open, onClose, onConfirm
             <div>
               <label className="mb-1 block text-sm text-slate-700 dark:text-slate-300">Customer Name (optional)</label>
               <input value={form.name} onChange={e=> setForm({ ...form, name: e.target.value })} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+              <div className="mt-3">
+                <label className="mb-1 block text-sm text-slate-700 dark:text-slate-300">Phone Number (optional)</label>
+                <input value={form.phone} onChange={e=> setForm({ ...form, phone: e.target.value })} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+              </div>
             </div>
           )}
         </div>

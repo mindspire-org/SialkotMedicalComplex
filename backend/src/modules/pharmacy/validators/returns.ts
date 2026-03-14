@@ -12,6 +12,7 @@ export const returnCreateSchema = z.object({
   datetime: z.string().min(1),
   reference: z.string().min(1),
   party: z.string().min(1),
+  phone: z.string().optional(),
   lines: z.array(returnLineSchema).min(1),
 })
 
@@ -20,6 +21,7 @@ export const returnQuerySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   search: z.string().optional(),
+  phone: z.string().optional(),
   party: z.string().optional(),
   reference: z.string().optional(),
   page: z.coerce.number().int().positive().optional(),

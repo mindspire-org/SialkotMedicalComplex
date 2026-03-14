@@ -15,6 +15,13 @@ body {
   color: #0f172a;
 }
 
+/* Hospital: make sidebar/menu typography crisp and more like modern admin templates */
+.hospital-scope {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 /* Utility-like custom classes without @apply to avoid IDE warnings */
 .card {
   border-radius: 1rem; /* ~rounded-2xl */
@@ -434,6 +441,7 @@ body {
 .reception-scope.dark .bg-teal-50,
 .reception-scope.dark .bg-rose-50,
 .reception-scope.dark .bg-yellow-50 { background-color: #111827 !important; }
+.reception-scope.dark .card { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
 .reception-scope.dark .text-slate-900 { color: #e5e7eb !important; }
 .reception-scope.dark .text-slate-800 { color: #e2e8f0 !important; }
 .reception-scope.dark .text-slate-700 { color: #cbd5e1 !important; }
@@ -486,3 +494,179 @@ body {
 /* Outline navy button in dark (Reception) */
 .reception-scope.dark .btn-outline-navy { background-color: var(--navy) !important; border-color: var(--navy) !important; color: #ffffff !important; }
 .reception-scope.dark .btn-outline-navy:hover { background-color: var(--navy-600) !important; }
+
+/* Aesthetic: scoped dark mode fallback (same pattern as Pharmacy) */
+.aesthetic-scope.dark { color-scheme: dark; }
+.aesthetic-scope.dark { background: #0b1220; color: #e2e8f0; }
+.aesthetic-scope.dark header { background-color: rgba(15,23,42,0.8) !important; border-color: #334155 !important; }
+.aesthetic-scope.dark aside { background-color: #0b1220 !important; border-color: #334155 !important; color: #cbd5e1 !important; }
+.aesthetic-scope.dark .bg-white { background-color: #0f172a !important; }
+.aesthetic-scope.dark .bg-slate-50 { background-color: #0b1220 !important; }
+.aesthetic-scope.dark .bg-slate-100 { background-color: #111827 !important; }
+.aesthetic-scope.dark .bg-white\/60 { background-color: rgba(255,255,255,0.08) !important; }
+.aesthetic-scope.dark .bg-slate-200 { background-color: #1f2937 !important; }
+.aesthetic-scope.dark .bg-slate-300 { background-color: #374151 !important; }
+.aesthetic-scope.dark .bg-violet-50 { background-color: #111827 !important; }
+.aesthetic-scope.dark .bg-fuchsia-50 { background-color: #111827 !important; }
+.aesthetic-scope.dark .bg-teal-50 { background-color: #111827 !important; }
+.aesthetic-scope.dark .bg-emerald-50,
+.aesthetic-scope.dark .bg-amber-50,
+.aesthetic-scope.dark .bg-green-50,
+.aesthetic-scope.dark .bg-sky-50,
+.aesthetic-scope.dark .bg-yellow-50,
+.aesthetic-scope.dark .bg-rose-50,
+.aesthetic-scope.dark .bg-indigo-50,
+.aesthetic-scope.dark .bg-cyan-50 { background-color: #111827 !important; }
+.aesthetic-scope.dark .text-slate-900 { color: #e5e7eb !important; }
+.aesthetic-scope.dark .text-slate-800 { color: #e2e8f0 !important; }
+.aesthetic-scope.dark .text-slate-700 { color: #cbd5e1 !important; }
+.aesthetic-scope.dark .text-slate-600 { color: #cbd5e1 !important; }
+.aesthetic-scope.dark .text-slate-500 { color: #94a3b8 !important; }
+.aesthetic-scope.dark .text-slate-400 { color: #94a3b8 !important; }
+.aesthetic-scope.dark .text-slate-300 { color: #cbd5e1 !important; }
+.aesthetic-scope.dark .border-slate-200 { border-color: #334155 !important; }
+.aesthetic-scope.dark .border-slate-100 { border-color: #334155 !important; }
+.aesthetic-scope.dark .border-slate-300 { border-color: #475569 !important; }
+.aesthetic-scope.dark .border-slate-400 { border-color: #64748b !important; }
+.aesthetic-scope.dark .border-violet-200 { border-color: #334155 !important; }
+.aesthetic-scope.dark .border-fuchsia-200 { border-color: #334155 !important; }
+.aesthetic-scope.dark .border-teal-200 { border-color: #334155 !important; }
+.aesthetic-scope.dark .border-emerald-200,
+.aesthetic-scope.dark .border-amber-200,
+.aesthetic-scope.dark .border-green-200,
+.aesthetic-scope.dark .border-sky-200,
+.aesthetic-scope.dark .border-yellow-200,
+.aesthetic-scope.dark .border-rose-200,
+.aesthetic-scope.dark .border-indigo-200,
+.aesthetic-scope.dark .border-cyan-200 { border-color: #334155 !important; }
+.aesthetic-scope.dark .card { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+.aesthetic-scope.dark input, .aesthetic-scope.dark select, .aesthetic-scope.dark textarea {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+  border-color: #334155 !important;
+}
+.aesthetic-scope.dark input::placeholder, .aesthetic-scope.dark textarea::placeholder { color: #64748b !important; }
+.aesthetic-scope.dark .hover\:bg-slate-50:hover { background-color: #111827 !important; }
+.aesthetic-scope.dark .hover\:bg-slate-100:hover { background-color: #1f2937 !important; }
+.aesthetic-scope.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: #334155 !important; }
+.aesthetic-scope.dark .bg-sky-100 { background-color: #0ea5e9 !important; color: #001219 !important; }
+.aesthetic-scope.dark .bg-violet-100 { background-color: #312e81 !important; color: #a5b4fc !important; }
+.aesthetic-scope.dark .text-emerald-700 { color: #34d399 !important; }
+.aesthetic-scope.dark .text-amber-700 { color: #fbbf24 !important; }
+.aesthetic-scope.dark .text-rose-700 { color: #f87171 !important; }
+.aesthetic-scope.dark .text-sky-700 { color: #38bdf8 !important; }
+.aesthetic-scope.dark .text-indigo-700 { color: #a78bfa !important; }
+
+/* Force dark mode for User Management translucent backgrounds */
+.reception-scope.dark .bg-white\/80,
+.reception-scope.dark .bg-white\/70,
+.reception-scope.dark .bg-white\/90,
+.aesthetic-scope.dark .bg-white\/80,
+.aesthetic-scope.dark .bg-white\/70,
+.aesthetic-scope.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+.reception-scope.dark input,
+.reception-scope.dark select,
+.aesthetic-scope.dark input,
+.aesthetic-scope.dark select {
+  background-color: rgba(2, 6, 23, 0.8) !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+
+.reception-scope.dark input::placeholder,
+.aesthetic-scope.dark input::placeholder {
+  color: #64748b !important;
+}
+
+.reception-scope.dark .bg-slate-50\/70,
+.aesthetic-scope.dark .bg-slate-50\/70 {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+
+.reception-scope.dark th,
+.aesthetic-scope.dark th {
+  color: #94a3b8 !important;
+}
+
+.reception-scope.dark td,
+.aesthetic-scope.dark td {
+  color: #e2e8f0 !important;
+}
+
+.reception-scope.dark .hover\:bg-slate-50\/70:hover,
+.aesthetic-scope.dark .hover\:bg-slate-50\/70:hover {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+
+.reception-scope.dark .bg-white\/60,
+.aesthetic-scope.dark .bg-white\/60 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+.reception-scope.dark .bg-linear-to-br,
+.aesthetic-scope.dark .bg-linear-to-br {
+  background-image: linear-gradient(to bottom right, rgba(49, 46, 129, 0.3), rgba(112, 26, 117, 0.2), rgba(21, 94, 117, 0.2)) !important;
+}
+
+.reception-scope.dark .border-white\/20,
+.reception-scope.dark .border-white\/40,
+.aesthetic-scope.dark .border-white\/20,
+.aesthetic-scope.dark .border-white\/40 {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+.reception-scope.dark .shadow-xl,
+.reception-scope.dark .shadow-lg,
+.aesthetic-scope.dark .shadow-xl,
+.aesthetic-scope.dark .shadow-lg {
+  box-shadow: none !important;
+}
+
+/* Force dark mode for Pharmacy glass-style utility classes */
+.pharmacy-scope.dark .bg-white\/80,
+.pharmacy-scope.dark .bg-white\/70,
+.pharmacy-scope.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+.pharmacy-scope.dark .bg-white\/60 { background-color: rgba(15, 23, 42, 0.6) !important; }
+
+.pharmacy-scope.dark .bg-linear-to-br {
+  background-image: linear-gradient(to bottom right, rgba(49, 46, 129, 0.3), rgba(112, 26, 117, 0.2), rgba(21, 94, 117, 0.2)) !important;
+}
+
+.pharmacy-scope.dark .border-white\/20,
+.pharmacy-scope.dark .border-white\/40 {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+.pharmacy-scope.dark .bg-slate-50\/70 { background-color: rgba(30, 41, 59, 0.8) !important; }
+.pharmacy-scope.dark .hover\:bg-slate-50\/70:hover { background-color: rgba(30, 41, 59, 0.9) !important; }
+
+.pharmacy-scope.dark th { color: #94a3b8 !important; }
+.pharmacy-scope.dark td { color: #e2e8f0 !important; }
+
+/* Extra polish for Pharmacy User Management (and similar glass pages) */
+.pharmacy-scope.dark .divide-slate-200\/70 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(51, 65, 85, 0.7) !important; }
+.pharmacy-scope.dark .border-slate-200\/60 { border-color: rgba(51, 65, 85, 0.7) !important; }
+.pharmacy-scope.dark .bg-slate-50\/70 { background-color: rgba(15, 23, 42, 0.55) !important; }
+.pharmacy-scope.dark .hover\:bg-slate-50\/70:hover { background-color: rgba(51, 65, 85, 0.35) !important; }
+
+.pharmacy-scope.dark .bg-white\/80,
+.pharmacy-scope.dark .bg-white\/70,
+.pharmacy-scope.dark .bg-white\/90 {
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35) !important;
+}
+
+/* Role pill style */
+.pharmacy-scope.dark .bg-white { background-color: #0f172a !important; }
+.pharmacy-scope.dark .bg-white\/80 { background-color: rgba(15, 23, 42, 0.88) !important; }
+.pharmacy-scope.dark .bg-white\/70 { background-color: rgba(15, 23, 42, 0.82) !important; }
+.pharmacy-scope.dark .bg-white\/90 { background-color: rgba(15, 23, 42, 0.92) !important; }
+.pharmacy-scope.dark .border-slate-200 { border-color: rgba(51, 65, 85, 0.8) !important; }
+.pharmacy-scope.dark .text-slate-700 { color: #cbd5e1 !important; }
