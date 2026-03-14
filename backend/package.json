@@ -7,6 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p .",
     "start": "node dist/server.js",
+    "create:users": "ts-node src/create_users.ts",
     "seed:aesthetic-admin": "ts-node-dev --transpile-only src/seeds/aesthetic_admin.ts",
     "import:lab-tests": "ts-node-dev --transpile-only src/scripts/import_lab_tests.ts",
     "import:diagnostic-tests": "ts-node-dev --transpile-only src/scripts/import_diagnostic_tests.ts"
