@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 # Environment files - VPS protection
+*.env
 .env
 .env.*
 .env.example

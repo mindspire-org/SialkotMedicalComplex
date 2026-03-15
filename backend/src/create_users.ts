@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs'
 import { connectDB } from './config/db'
 import { AestheticUser } from './modules/aesthetic/models/User'
 import { DiagnosticUser } from './modules/diagnostic/models/User'
+import { DialysisUser } from './modules/dialysis/models/User'
 import { HospitalUser } from './modules/hospital/models/User'
 import { FinanceUser } from './modules/hospital/models/finance_User'
 import { LabUser } from './modules/lab/models/User'
@@ -20,6 +21,8 @@ interface UserDefinition {
   password: string
   role: string
   fullName?: string
+  phone?: string
+  email?: string
   permissions?: string[]
   active?: boolean
   shiftId?: string
@@ -115,6 +118,16 @@ const moduleUsers: ModuleUsers[] = [
     ]
   },
   {
+    model: DialysisUser,
+    name: 'Dialysis',
+    users: [
+      { username: 'dialysis_admin', password: DEFAULT_PASSWORD, role: 'admin', fullName: 'Dialysis Admin', active: true },
+      { username: 'dialysis_doctor', password: DEFAULT_PASSWORD, role: 'doctor', fullName: 'Dialysis Doctor', active: true },
+      { username: 'dialysis_nurse', password: DEFAULT_PASSWORD, role: 'nurse', fullName: 'Dialysis Nurse', active: true },
+      { username: 'dialysis_technician', password: DEFAULT_PASSWORD, role: 'technician', fullName: 'Dialysis Technician', active: true },
+    ]
+  },
+  {
     model: ReceptionUser,
     name: 'Reception',
     users: [
@@ -164,6 +177,8 @@ async function ensureUser(model: any, userDef: UserDefinition): Promise<{ create
 
     // Add model-specific fields
     if (userDef.fullName !== undefined) userDoc.fullName = userDef.fullName
+    if (userDef.phone !== undefined) userDoc.phone = userDef.phone
+    if (userDef.email !== undefined) userDoc.email = userDef.email
     if (userDef.permissions !== undefined) userDoc.permissions = userDef.permissions
     if (userDef.active !== undefined) userDoc.active = userDef.active
     if (userDef.shiftId !== undefined) userDoc.shiftId = userDef.shiftId
